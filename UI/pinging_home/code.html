@@ -1,0 +1,306 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Network Utility - Pinging</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-error": "#690005",
+                      "surface-variant": "#2e3541",
+                      "tertiary-container": "#41a447",
+                      "tertiary-fixed-dim": "#78dc77",
+                      "surface-container-high": "#232a36",
+                      "inverse-primary": "#005bc1",
+                      "inverse-on-surface": "#2a313c",
+                      "background": "#0d141e",
+                      "surface-bright": "#333946",
+                      "error": "#ffb4ab",
+                      "surface-tint": "#adc6ff",
+                      "on-surface-variant": "#c1c6d7",
+                      "error-container": "#93000a",
+                      "surface-container-highest": "#2e3541",
+                      "on-primary-fixed": "#001a41",
+                      "on-secondary-container": "#00616d",
+                      "secondary": "#bdf4ff",
+                      "on-tertiary-fixed": "#002204",
+                      "surface-container-low": "#151c27",
+                      "on-error-container": "#ffdad6",
+                      "secondary-container": "#00e3fd",
+                      "secondary-fixed": "#9cf0ff",
+                      "on-primary-fixed-variant": "#004493",
+                      "secondary-fixed-dim": "#00daf3",
+                      "on-secondary-fixed": "#001f24",
+                      "primary-container": "#4b8eff",
+                      "primary": "#adc6ff",
+                      "primary-fixed-dim": "#adc6ff",
+                      "inverse-surface": "#dce3f2",
+                      "on-secondary-fixed-variant": "#004f58",
+                      "tertiary": "#78dc77",
+                      "on-primary-container": "#00285c",
+                      "on-secondary": "#00363d",
+                      "surface-container": "#19202b",
+                      "on-tertiary-fixed-variant": "#005313",
+                      "primary-fixed": "#d8e2ff",
+                      "surface-container-lowest": "#070e19",
+                      "on-primary": "#002e69",
+                      "outline": "#8b90a0",
+                      "outline-variant": "#414755",
+                      "on-background": "#dce3f2",
+                      "on-tertiary": "#00390a",
+                      "on-surface": "#dce3f2",
+                      "tertiary-fixed": "#94f990",
+                      "surface-dim": "#0d141e",
+                      "on-tertiary-container": "#003208",
+                      "surface": "#0d141e"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "section-margin": "24px",
+                      "element-gap": "8px",
+                      "stack-gap": "12px",
+                      "unit": "4px",
+                      "container-padding": "16px"
+              },
+              "fontFamily": {
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "code-sm": ["JetBrains Mono"],
+                      "label-caps": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "code-lg": ["JetBrains Mono"]
+              },
+              "fontSize": {
+                      "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "code-sm": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                      "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                      "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "code-lg": ["14px", {"lineHeight": "20px", "fontWeight": "500"}]
+              }
+            },
+          }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pulse-ring {
+            animation: pulse 2s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen flex flex-col pb-[80px]">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface border-b border-outline-variant flat no shadows transition-colors duration-200">
+<div class="flex justify-between items-center px-container-padding h-16 w-full">
+<div class="flex items-center gap-element-gap">
+<span class="material-symbols-outlined text-primary text-2xl" data-icon="settings_input_antenna">settings_input_antenna</span>
+<h1 class="font-headline-lg text-headline-lg font-bold text-primary">Network Utility</h1>
+</div>
+<div class="flex items-center gap-element-gap text-on-surface-variant hover:bg-surface-variant p-2 rounded-lg cursor-pointer">
+<span class="font-code-sm text-code-sm">5G • LTE</span>
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow pt-[80px] px-container-padding flex flex-col gap-section-margin max-w-4xl mx-auto w-full">
+<!-- Status Bar -->
+<div class="flex items-center justify-between bg-surface-container-low p-3 rounded-lg border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary shadow-[0_0_8px_rgba(120,220,119,0.6)]"></span>
+<span class="font-body-md text-on-surface">Connected</span>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant font-code-sm text-code-sm">
+<span>4G LTE</span>
+<span class="w-px h-4 bg-outline-variant"></span>
+<span>Dialog</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="info">info</span>
+</div>
+<!-- Main Ping Card (Bento Style) -->
+<section class="bg-surface-container rounded-xl border border-outline-variant p-6 flex flex-col items-center justify-center relative overflow-hidden">
+<div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at center, #adc6ff 0%, transparent 70%);"></div>
+<div class="text-center z-10 mb-6">
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-2">Destination</p>
+<div class="inline-flex items-center gap-2 bg-surface-container-high px-3 py-1 rounded-full border border-outline-variant">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="public">public</span>
+<span class="font-code-sm text-code-sm text-on-surface">Google DNS — 8.8.8.8</span>
+</div>
+</div>
+<div class="relative w-48 h-48 flex items-center justify-center mb-8">
+<!-- Pulse rings -->
+<div class="absolute inset-0 rounded-full border-2 border-primary-container pulse-ring opacity-50"></div>
+<div class="absolute inset-2 rounded-full border border-primary pulse-ring opacity-30" style="animation-delay: 0.5s;"></div>
+<div class="z-10 flex flex-col items-center">
+<span class="font-headline-lg text-headline-lg text-primary text-5xl font-bold mb-1">42<span class="text-2xl text-on-surface-variant font-normal ml-1">ms</span></span>
+<span class="font-label-caps text-label-caps text-tertiary bg-tertiary/10 px-2 py-0.5 rounded text-[10px]">EXCELLENT</span>
+</div>
+</div>
+<button class="w-full md:w-auto px-8 py-3 bg-primary text-on-primary font-headline-md text-headline-md rounded-lg hover:bg-primary-container transition-colors font-bold z-10 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" data-icon="play_arrow">play_arrow</span>
+                Start Ping
+            </button>
+</section>
+<!-- Ping Statistics Grid -->
+<section class="grid grid-cols-3 md:grid-cols-6 gap-unit w-full">
+<!-- Min -->
+<div class="bg-surface-container rounded-lg border border-outline-variant p-3 flex flex-col items-center justify-center col-span-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">MIN</span>
+<span class="font-code-lg text-code-lg text-on-surface">38<span class="text-[10px] text-on-surface-variant">ms</span></span>
+</div>
+<!-- Avg -->
+<div class="bg-surface-container rounded-lg border border-outline-variant border-b-2 border-b-primary p-3 flex flex-col items-center justify-center col-span-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">AVG</span>
+<span class="font-code-lg text-code-lg text-primary">42<span class="text-[10px] text-on-surface-variant">ms</span></span>
+</div>
+<!-- Max -->
+<div class="bg-surface-container rounded-lg border border-outline-variant p-3 flex flex-col items-center justify-center col-span-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">MAX</span>
+<span class="font-code-lg text-code-lg text-on-surface">85<span class="text-[10px] text-on-surface-variant">ms</span></span>
+</div>
+<!-- Jitter -->
+<div class="bg-surface-container rounded-lg border border-outline-variant p-3 flex flex-col items-center justify-center col-span-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">JITTER</span>
+<span class="font-code-lg text-code-lg text-on-surface">2<span class="text-[10px] text-on-surface-variant">ms</span></span>
+</div>
+<!-- Loss -->
+<div class="bg-surface-container rounded-lg border border-outline-variant p-3 flex flex-col items-center justify-center col-span-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">LOSS</span>
+<span class="font-code-lg text-code-lg text-tertiary">0%</span>
+</div>
+<!-- Success -->
+<div class="bg-surface-container rounded-lg border border-outline-variant p-3 flex flex-col items-center justify-center col-span-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">SUCCESS</span>
+<span class="font-code-lg text-code-lg text-tertiary">100%</span>
+</div>
+<!-- Packet Stats -->
+<div class="col-span-3 bg-surface-container-low rounded-lg border border-outline-variant p-2 flex justify-around text-center items-center">
+<div><span class="font-label-caps text-label-caps text-on-surface-variant mr-1">SENT</span><span class="font-code-sm text-code-sm">142</span></div>
+<div class="w-px h-4 bg-outline-variant"></div>
+<div><span class="font-label-caps text-label-caps text-on-surface-variant mr-1">RECV</span><span class="font-code-sm text-code-sm">142</span></div>
+<div class="w-px h-4 bg-outline-variant"></div>
+<div><span class="font-label-caps text-label-caps text-on-surface-variant mr-1">FAIL</span><span class="font-code-sm text-code-sm text-error">0</span></div>
+</div>
+<!-- Controls summary -->
+<div class="col-span-3 bg-surface-container-low rounded-lg border border-outline-variant p-2 flex justify-between items-center px-4 cursor-pointer hover:bg-surface-container">
+<span class="font-body-md text-on-surface">Settings</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="chevron_right">chevron_right</span>
+</div>
+</section>
+<!-- Live Graph Placeholder -->
+<section class="bg-surface-container rounded-xl border border-outline-variant p-4 h-48 flex flex-col">
+<div class="flex justify-between items-center mb-2">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">Latency (Last 60s)</span>
+<div class="flex gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="w-2 h-2 rounded-full bg-orange-400"></span>
+<span class="w-2 h-2 rounded-full bg-error"></span>
+</div>
+</div>
+<div class="flex-grow bg-surface-dim rounded border border-outline-variant relative overflow-hidden flex items-end px-1 gap-[1px]">
+<!-- Simulated graph bars -->
+<div class="w-full h-[40%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<div class="w-full h-[42%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<div class="w-full h-[38%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<div class="w-full h-[45%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<div class="w-full h-[85%] bg-orange-400/40 hover:bg-orange-400/70 transition-colors"></div>
+<div class="w-full h-[41%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<div class="w-full h-[39%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<div class="w-full h-[42%] bg-primary/20 hover:bg-primary/50 transition-colors"></div>
+<!-- Threshold lines -->
+<div class="absolute left-0 right-0 bottom-[60%] border-t border-dashed border-orange-400/30"></div>
+<div class="absolute left-0 right-0 bottom-[80%] border-t border-dashed border-error/30"></div>
+</div>
+</section>
+<!-- Recent Sessions -->
+<section class="flex flex-col gap-2">
+<h2 class="font-label-caps text-label-caps text-on-surface-variant uppercase mb-2">Recent Sessions</h2>
+<div class="bg-surface-container rounded-lg border border-outline-variant p-4 flex items-center justify-between hover:bg-surface-variant transition-colors cursor-pointer">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center border border-outline-variant">
+<span class="material-symbols-outlined text-on-surface" data-icon="history">history</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-on-surface font-semibold">Google DNS</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">Today, 14:20</span>
+</div>
+</div>
+<div class="flex flex-col items-end text-right">
+<span class="font-code-sm text-code-sm text-primary">Avg: 41ms</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Loss: 0%</span>
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container rounded-lg border border-outline-variant p-4 flex items-center justify-between hover:bg-surface-variant transition-colors cursor-pointer opacity-70">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center border border-outline-variant">
+<span class="material-symbols-outlined text-on-surface" data-icon="sports_esports">sports_esports</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-md text-on-surface font-semibold">Game Server</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">Yesterday, 21:05</span>
+</div>
+</div>
+<div class="flex flex-col items-end text-right">
+<span class="font-code-sm text-code-sm text-orange-400">Avg: 112ms</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Loss: 2%</span>
+<span class="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full flex justify-around items-center h-16 px-4 bg-surface-container border-t border-outline-variant z-50 flat no shadows">
+<!-- Pinging (Active) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-xl px-3 py-1 scale-95 duration-100" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="Table_Rows" data-weight="fill" style="font-variation-settings: 'FILL' 1;">save_as</span>
+<span class="font-label-caps text-label-caps mt-1">Pinging</span>
+</a>
+<!-- Network (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-bright rounded-xl transition-colors" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="Signal_Cellular_Alt">file_upload_off</span>
+<span class="font-label-caps text-label-caps mt-1">Network</span>
+</a>
+<!-- Injector (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-bright rounded-xl transition-colors" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="Terminal">file_json</span>
+<span class="font-label-caps text-label-caps mt-1">Injector</span>
+</a>
+<!-- Settings (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-bright rounded-xl transition-colors" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="Settings">content_copy</span>
+<span class="font-label-caps text-label-caps mt-1">Settings</span>
+</a>
+</nav>
+<script>
+        // Simple logic to ensure material icons are rendered literally as instructed
+        document.querySelectorAll('[data-icon]').forEach(el => {
+            el.textContent = el.getAttribute('data-icon');
+        });
+    </script>
+</body></html>

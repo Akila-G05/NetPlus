@@ -1,0 +1,316 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Settings - NetUtility Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-tertiary-container": "#003208",
+                      "background": "#0d141e",
+                      "surface-dim": "#0d141e",
+                      "primary-fixed": "#d8e2ff",
+                      "on-secondary": "#00363d",
+                      "on-error-container": "#ffdad6",
+                      "surface-container-high": "#232a36",
+                      "on-tertiary-fixed": "#002204",
+                      "surface-container-highest": "#2e3541",
+                      "on-error": "#690005",
+                      "tertiary-fixed": "#94f990",
+                      "surface-tint": "#adc6ff",
+                      "on-surface": "#dce3f2",
+                      "on-primary-fixed-variant": "#004493",
+                      "secondary-container": "#00e3fd",
+                      "error": "#ffb4ab",
+                      "outline": "#8b90a0",
+                      "surface-container-lowest": "#070e19",
+                      "inverse-on-surface": "#2a313c",
+                      "inverse-surface": "#dce3f2",
+                      "on-secondary-fixed-variant": "#004f58",
+                      "on-primary-container": "#00285c",
+                      "primary-fixed-dim": "#adc6ff",
+                      "on-background": "#dce3f2",
+                      "on-surface-variant": "#c1c6d7",
+                      "on-secondary-fixed": "#001f24",
+                      "surface-bright": "#333946",
+                      "tertiary-fixed-dim": "#78dc77",
+                      "secondary-fixed-dim": "#00daf3",
+                      "outline-variant": "#414755",
+                      "on-tertiary": "#00390a",
+                      "inverse-primary": "#005bc1",
+                      "on-tertiary-fixed-variant": "#005313",
+                      "on-secondary-container": "#00616d",
+                      "surface-variant": "#2e3541",
+                      "primary-container": "#4b8eff",
+                      "surface-container": "#19202b",
+                      "tertiary": "#78dc77",
+                      "primary": "#adc6ff",
+                      "error-container": "#93000a",
+                      "tertiary-container": "#41a447",
+                      "secondary": "#bdf4ff",
+                      "surface-container-low": "#151c27",
+                      "on-primary-fixed": "#001a41",
+                      "secondary-fixed": "#9cf0ff",
+                      "surface": "#0d141e",
+                      "on-primary": "#002e69"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-gap": "12px",
+                      "container-padding": "16px",
+                      "element-gap": "8px",
+                      "unit": "4px",
+                      "section-margin": "24px"
+              },
+              "fontFamily": {
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "code-lg": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "code-sm": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "code-lg": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "code-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+        body {
+            background-color: #0A0E14; /* Level 0 Base */
+            color: #dce3f2;
+        }
+        .card-surface {
+            background-color: #141B26; /* Level 1 Surface */
+            border: 1px solid #1F2937;
+        }
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom, 16px);
+        }
+    </style>
+</head>
+<body class="bg-background min-h-screen flex flex-col font-body-lg text-body-lg">
+<!-- TopAppBar -->
+<header class="bg-surface-container w-full top-0 sticky border-b border-outline-variant flex justify-between items-center px-container-padding h-14 z-40">
+<div class="flex items-center gap-2 cursor-pointer active:scale-95 transition-transform hover:bg-surface-container-high p-1 rounded">
+<span class="material-symbols-outlined text-primary" data-icon="hub">hub</span>
+<span class="font-headline-md text-headline-md font-bold text-secondary-container">NetUtility Pro</span>
+</div>
+<div class="cursor-pointer active:scale-95 transition-transform hover:bg-surface-container-high px-2 py-1 rounded text-primary">
+<span class="font-code-sm text-code-sm">5G Online</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow p-container-padding pb-32 max-w-4xl mx-auto w-full flex flex-col gap-section-margin">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface mb-2">Settings</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">Configure diagnostic tools and application preferences.</p>
+</div>
+<!-- Bento Grid Layout for Settings -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-stack-gap">
+<!-- General Settings -->
+<section class="card-surface rounded-xl p-container-padding flex flex-col gap-stack-gap">
+<div class="flex items-center gap-2 mb-2 border-b border-outline-variant pb-2">
+<span class="material-symbols-outlined text-primary" data-icon="tune">tune</span>
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase tracking-wider">General</h2>
+</div>
+<div class="flex justify-between items-center py-2">
+<span class="font-body-md text-body-md text-on-surface">Theme</span>
+<select class="bg-surface-container border border-outline-variant rounded px-2 py-1 font-code-sm text-code-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option>Dark Mode</option>
+<option>Light Mode</option>
+<option>System Default</option>
+</select>
+</div>
+<div class="flex justify-between items-center py-2 border-t border-outline-variant">
+<span class="font-body-md text-body-md text-on-surface">Language</span>
+<select class="bg-surface-container border border-outline-variant rounded px-2 py-1 font-code-sm text-code-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option>English (US)</option>
+<option>Spanish</option>
+<option>French</option>
+</select>
+</div>
+<div class="flex justify-between items-center py-2 border-t border-outline-variant">
+<span class="font-body-md text-body-md text-on-surface">Notifications</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value="">
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</section>
+<!-- Ping Settings -->
+<section class="card-surface rounded-xl p-container-padding flex flex-col gap-stack-gap">
+<div class="flex items-center gap-2 mb-2 border-b border-outline-variant pb-2">
+<span class="material-symbols-outlined text-primary" data-icon="wifi_tethering">wifi_tethering</span>
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase tracking-wider">Ping Config</h2>
+</div>
+<div class="flex justify-between items-center py-2">
+<span class="font-body-md text-body-md text-on-surface">Interval (ms)</span>
+<input class="bg-surface-container border border-outline-variant rounded px-2 py-1 font-code-sm text-code-sm text-on-surface w-20 text-right focus:border-primary focus:ring-1 focus:ring-primary outline-none" type="number" value="1000">
+</div>
+<div class="flex justify-between items-center py-2 border-t border-outline-variant">
+<span class="font-body-md text-body-md text-on-surface">Timeout (ms)</span>
+<input class="bg-surface-container border border-outline-variant rounded px-2 py-1 font-code-sm text-code-sm text-on-surface w-20 text-right focus:border-primary focus:ring-1 focus:ring-primary outline-none" type="number" value="5000">
+</div>
+<div class="flex justify-between items-center py-2 border-t border-outline-variant">
+<span class="font-body-md text-body-md text-on-surface">Continuous Ping</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value="">
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</section>
+<!-- Speed Test Settings -->
+<section class="card-surface rounded-xl p-container-padding flex flex-col gap-stack-gap">
+<div class="flex items-center gap-2 mb-2 border-b border-outline-variant pb-2">
+<span class="material-symbols-outlined text-primary" data-icon="speed">speed</span>
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase tracking-wider">Speed Test</h2>
+</div>
+<div class="flex justify-between items-center py-2">
+<span class="font-body-md text-body-md text-on-surface">Data Units</span>
+<select class="bg-surface-container border border-outline-variant rounded px-2 py-1 font-code-sm text-code-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option>Mbps</option>
+<option>MB/s</option>
+<option>Kbps</option>
+</select>
+</div>
+<div class="flex justify-between items-center py-2 border-t border-outline-variant">
+<span class="font-body-md text-body-md text-on-surface">Save History</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value="">
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</section>
+<!-- Account / Upgrade -->
+<section class="card-surface rounded-xl p-container-padding flex flex-col gap-stack-gap bg-gradient-to-br from-surface-container-highest to-surface-container relative overflow-hidden group">
+<div class="absolute inset-0 bg-primary opacity-5 group-hover:opacity-10 transition-opacity"></div>
+<div class="flex items-center gap-2 mb-2 z-10">
+<span class="material-symbols-outlined text-secondary-container" data-icon="workspace_premium">workspace_premium</span>
+<h2 class="font-label-caps text-label-caps text-secondary-container uppercase tracking-wider">Pro Account</h2>
+</div>
+<div class="py-2 z-10">
+<p class="font-body-md text-body-md text-on-surface mb-4">Unlock advanced diagnostics, unlimited history, and premium server access.</p>
+<button class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-2 rounded-lg hover:bg-surface-tint transition-colors">
+                        Upgrade to Premium
+                    </button>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="bg-surface-container-low border-t border-outline-variant fixed bottom-0 w-full z-50 flex justify-around items-center h-16 px-2 pb-safe md:hidden">
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all active:scale-90 duration-200 cursor-pointer w-16 h-full">
+<span class="material-symbols-outlined" data-icon="wifi_tethering">wifi_tethering</span>
+<span class="font-label-caps text-label-caps mt-1">Pinging</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all active:scale-90 duration-200 cursor-pointer w-16 h-full">
+<span class="material-symbols-outlined" data-icon="router">router</span>
+<span class="font-label-caps text-label-caps mt-1">Network</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all active:scale-90 duration-200 cursor-pointer w-16 h-full">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span class="font-label-caps text-label-caps mt-1">Injector</span>
+</div>
+<div class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-xl px-3 py-1 hover:bg-surface-container-highest transition-all active:scale-90 duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="settings" style="font-variation-settings: 'FILL' 1;">settings</span>
+<span class="font-label-caps text-label-caps mt-1">Settings</span>
+</div>
+</nav>
+</body></html>

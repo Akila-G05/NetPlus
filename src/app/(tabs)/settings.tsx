@@ -117,7 +117,9 @@ export default function SettingsScreen() {
   const [ratedSubmitted, setRatedSubmitted] = useState(false);
 
   // Background Pinging State
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [bgPingEnabled, setBgPingEnabled] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [bgInterval, setBgInterval] = useState('15 Minutes');
   const [bgLogsModalVisible, setBgLogsModalVisible] = useState(false);
   const [bgLogs, setBgLogs] = useState<BackgroundLogEntry[]>([]);
@@ -126,6 +128,7 @@ export default function SettingsScreen() {
     isBackgroundPingRegisteredAsync().then(setBgPingEnabled);
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleToggleBgPing = async (val: boolean) => {
     setBgPingEnabled(val);
     if (val) {
@@ -149,6 +152,7 @@ export default function SettingsScreen() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleOpenBgLogs = async () => {
     const logs = await getBackgroundLogsAsync();
     setBgLogs(logs);

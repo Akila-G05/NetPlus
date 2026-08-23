@@ -20,7 +20,7 @@ import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
 import DataCard from '@/components/DataCard';
 import CircularProgress from '@/components/CircularProgress';
-import { dataUsageTracker, formatBytes, type DataUsageStats } from '@/services/DataUsageTracker';
+import { dataUsageTracker, formatBytes, formatSpeedRate, type DataUsageStats } from '@/services/DataUsageTracker';
 
 // ── Live network helpers ─────────────────────────────────
 const SPEED_INTERVAL_MS = 4000;
@@ -243,6 +243,18 @@ export default function NetworkScreen() {
 
   const isFocused = useIsFocused();
 
+  // Real-time live rate sampling (every 500ms) for live traffic meter
+  const [liveRates, setLiveRates] = useState({ rxBytesPerSec: 0, txBytesPerSec: 0 });
+
+  useEffect(() => {
+    if (!isFocused || !monitoring) return;
+    const rateInterval = setInterval(() => {
+      const rate = dataUsageTracker.getLiveRate(1000);
+      setLiveRates(rate);
+    }, 1500);
+    return () => clearInterval(rateInterval);
+  }, [isFocused, monitoring]);
+
   // Live throughput sampling every SPEED_INTERVAL_MS — only while the tab is
   // focused AND the user has enabled monitoring (zero background traffic)
   useEffect(() => {
@@ -380,12 +392,20 @@ export default function NetworkScreen() {
               <View style={styles.activityStat}>
                 <MaterialIcons name="arrow-downward" size={14} color={Colors.tertiary} />
                 <Text style={[gs.labelCaps, { color: Colors.tertiary }]}>
-                  {downloadSpeed !== null ? `${formatMbps(downloadSpeed)} Mbps` : '-- Mbps'}
+                  {liveRates.rxBytesPerSec > 0
+                    ? formatSpeedRate(liveRates.rxBytesPerSec)
+                    : downloadSpeed !== null
+                    ? `${formatMbps(downloadSpeed)} Mbps`
+                    : '0 KB/s'}
                 </Text>
               </View>
               <View style={[styles.activityStat, styles.liveBadge]}>
                 <Text style={[gs.labelCaps, { color: Colors.primary }]}>
-                  {uploadSpeed !== null ? `${formatMbps(uploadSpeed)} Mbps` : '-- Mbps'}
+                  {liveRates.txBytesPerSec > 0
+                    ? formatSpeedRate(liveRates.txBytesPerSec)
+                    : uploadSpeed !== null
+                    ? `${formatMbps(uploadSpeed)} Mbps`
+                    : '0 KB/s'}
                 </Text>
                 <MaterialIcons name="pause-circle-outline" size={16} color={Colors.onSurfaceVariant} />
               </View>

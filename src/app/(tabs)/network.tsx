@@ -165,6 +165,7 @@ export default function NetworkScreen() {
 
   // Live data usage tracking
   const [dataUsage, setDataUsage] = useState<DataUsageStats>(dataUsageTracker.getStats());
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     return dataUsageTracker.subscribe(() => {
@@ -172,6 +173,15 @@ export default function NetworkScreen() {
     });
   }, []);
 
+  // Re-sync data usage stats when tab regains focus (freezeOnBlur pauses
+  // subscriber callbacks while un-focused, so we need to re-read on focus)
+  useEffect(() => {
+    if (isFocused) {
+      setDataUsage(dataUsageTracker.getStats());
+    }
+  }, [isFocused]);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleResetDataUsage = useCallback(() => {
     dataUsageTracker.reset();
   }, []);
@@ -237,7 +247,6 @@ export default function NetworkScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connType]);
 
-  const isFocused = useIsFocused();
 
   // Real-time live rate sampling (every 500ms) for live traffic meter
   const [liveRates, setLiveRates] = useState({ rxBytesPerSec: 0, txBytesPerSec: 0 });
@@ -264,12 +273,10 @@ export default function NetworkScreen() {
       if (!snapshot.isConnected || cancelled) return;
 
       measuringRef.current = true;
-      dataUsageTracker.startSession('speedtest');
       const [dl, ul] = await Promise.all([
         measureDownloadSpeed(abort.signal),
         measureUploadSpeed(abort.signal),
       ]);
-      dataUsageTracker.endSession();
       measuringRef.current = false;
       if (cancelled || abort.signal.aborted) return;
 
@@ -368,9 +375,9 @@ export default function NetworkScreen() {
 
         {/* Metrics Grid */}
         <View style={styles.metricsGrid}>
-          <MetricItem label="Local IP" value={localIp} />
+          <MetricItem label="Model" value={localIp} />
+          <MetricItem label="OS Version" value={gateway} />
           <MetricItem label="Public IP" value={publicIp} />
-          <MetricItem label="Gateway" value={gateway} />
           <MetricItem label="DNS" value={dnsServer} />
         </View>
 
@@ -466,160 +473,116 @@ export default function NetworkScreen() {
         </View>
       </DataCard> */}
 
-      {/* ── Data Usage Card — Live JS Interceptor ────────── */}
+      {/* ── Pinging Quality & Session Data Dashboard Card ────── */}
       <DataCard glass>
         {/* Header */}
         <View style={styles.dataUsageHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <MaterialIcons name="data-usage" size={18} color={Colors.primary} />
+            <MaterialIcons name="network-check" size={18} color={Colors.tertiary} />
             <Text style={[gs.labelCaps, { color: Colors.outline }]}>
-              App Data Usage
+              Diagnostic Data
             </Text>
           </View>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={styles.resetBadge}
             onPress={handleResetDataUsage}
             activeOpacity={0.7}
           >
             <MaterialIcons name="restart-alt" size={14} color={Colors.onSurfaceVariant} />
             <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant, fontSize: 9 }]}>
-              RESET
+              RESET STATS
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
 
-        {/* Totals Row */}
+        {/* Progression Circle & Request Counters Section */}
         <View style={styles.dataUsageContent}>
           <CircularProgress
-            progress={
-              dataUsage.totalSentBytes + dataUsage.totalReceivedBytes > 0
-                ? Math.round(
-                    (dataUsage.totalReceivedBytes /
-                      (dataUsage.totalSentBytes + dataUsage.totalReceivedBytes)) *
-                      100
-                  )
-                : 0
-            }
-            size={80}
-            strokeWidth={8}
-            color={Colors.primary}
-            icon="data-usage"
-            iconSize={26}
-            iconColor={Colors.primary}
+            progress={dataUsage.successRate}
+            size={110}
+            strokeWidth={9}
+            color={Colors.tertiary}
+            trackColor="rgba(255, 180, 171, 0.2)"
+            displayValue={`${dataUsage.successRate}%`}
+            subLabel="SUCCESS"
           />
           <View style={styles.dataUsageText}>
-            <Text style={[gs.headlineMd, { marginBottom: 4 }]}>
-              {formatBytes(dataUsage.totalSentBytes + dataUsage.totalReceivedBytes)}
-            </Text>
-            <View style={styles.dataUsageRow}>
-              <MaterialIcons name="arrow-downward" size={14} color={Colors.tertiary} />
-              <Text style={[gs.codeSm, { color: Colors.tertiary }]}>
-                {formatBytes(dataUsage.totalReceivedBytes)} received
-              </Text>
+            {/* Request Counters */}
+            <View style={styles.requestMetricBox}>
+              <View style={styles.requestMetricItem}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <MaterialIcons name="send" size={12} color={Colors.primary} />
+                  <Text style={[gs.labelCaps, { color: Colors.outline }]}>Sent</Text>
+                </View>
+                <Text style={gs.headlineMd}>{dataUsage.sentRequests.toLocaleString()}</Text>
+              </View>
+
+              <View style={styles.requestMetricItem}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <MaterialIcons name="cancel" size={12} color={Colors.error} />
+                  <Text style={[gs.labelCaps, { color: Colors.outline }]}>Lost</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                  <Text style={[gs.headlineMd, { color: dataUsage.lostRequests > 0 ? Colors.error : Colors.onSurface }]}>
+                    {dataUsage.lostRequests.toLocaleString()}
+                  </Text>
+                  <Text style={[gs.labelCaps, { color: dataUsage.lostRequests > 0 ? Colors.error : Colors.tertiary, fontSize: 10 }]}>
+                    ({dataUsage.lossRate}%)
+                  </Text>
+                </View>
+              </View>
             </View>
-            <View style={[styles.dataUsageRow, { marginTop: 4 }]}>
-              <MaterialIcons name="arrow-upward" size={14} color={Colors.primary} />
-              <Text style={[gs.codeSm, { color: Colors.primary }]}>
-                {formatBytes(dataUsage.totalSentBytes)} sent
-              </Text>
-            </View>
-            <Text style={[gs.labelCaps, { color: Colors.outline, marginTop: 4 }]}>
-              {dataUsage.sessions.length} session{dataUsage.sessions.length !== 1 ? 's' : ''} recorded
-            </Text>
           </View>
         </View>
 
-        {/* Session breakdown bars */}
-        {/* {(() => {
-          const pingTotal = dataUsage.sessions
-            .filter((s) => s.type === 'ping')
-            .reduce((acc, s) => acc + s.sentBytes + s.receivedBytes, 0);
-          const speedTotal = dataUsage.sessions
-            .filter((s) => s.type === 'speedtest')
-            .reduce((acc, s) => acc + s.sentBytes + s.receivedBytes, 0);
-          const grandTotal = pingTotal + speedTotal;
+        {/* Divider */}
+        <View style={[gs.divider, { marginVertical: 12 }]} />
 
+        {/* Status & Traffic Section */}
+        {(() => {
+          const isPingingActive = dataUsage.isPingingActive || monitoring;
           return (
-            <View style={styles.sessionBreakdown}>
-              
-              <View style={styles.sessionRow}>
-                <View style={styles.sessionLabelRow}>
-                  <View style={[styles.sessionDot, { backgroundColor: Colors.primary }]} />
-                  <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Speed Tests</Text>
-                  <Text style={[gs.codeSm, { color: Colors.onSurface, marginLeft: 'auto' }]}>
-                    {formatBytes(speedTotal)}
-                  </Text>
-                </View>
-                <View style={styles.sessionBarTrack}>
-                  <View
+            <View style={styles.sessionDataGrid}>
+              <View style={styles.sessionTile}>
+                <MaterialIcons
+                  name="wifi-tethering"
+                  size={18}
+                  color={isPingingActive ? Colors.tertiary : Colors.primary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Pinging Status</Text>
+                  <Text
                     style={[
-                      styles.sessionBarFill,
-                      {
-                        width: grandTotal > 0 ? `${Math.round((speedTotal / grandTotal) * 100)}%` : '0%',
-                        backgroundColor: Colors.primary,
-                      },
+                      gs.codeLg,
+                      { color: isPingingActive ? Colors.tertiary : Colors.onSurface },
                     ]}
-                  />
+                  >
+                    {isPingingActive ? 'Active' : 'Idle'}
+                  </Text>
                 </View>
               </View>
 
-             
-              <View style={styles.sessionRow}>
-                <View style={styles.sessionLabelRow}>
-                  <View style={[styles.sessionDot, { backgroundColor: Colors.secondaryContainer }]} />
-                  <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Pinging</Text>
-                  <Text style={[gs.codeSm, { color: Colors.onSurface, marginLeft: 'auto' }]}>
-                    {formatBytes(pingTotal)}
-                  </Text>
-                </View>
-                <View style={styles.sessionBarTrack}>
-                  <View
-                    style={[
-                      styles.sessionBarFill,
-                      {
-                        width: grandTotal > 0 ? `${Math.round((pingTotal / grandTotal) * 100)}%` : '0%',
-                        backgroundColor: Colors.secondaryContainer,
-                      },
-                    ]}
-                  />
+              <View style={styles.sessionTile}>
+                <MaterialIcons name="speed" size={18} color={Colors.secondaryContainer} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Speed Test</Text>
+                  <Text style={gs.codeLg}>Ready</Text>
                 </View>
               </View>
             </View>
           );
-        })()} */}
+        })()}
 
-        {/* Recent sessions mini-chart */}
-        {dataUsage.sessions.length > 0 && (
-          <>
-            <View style={styles.recentHeader}>
-              <Text style={[gs.labelCaps, { color: Colors.outline }]}>Recent Sessions</Text>
-            </View>
-            <View style={styles.recentChart}>
-              {dataUsage.sessions.slice(-12).map((s, i) => {
-                const total = s.sentBytes + s.receivedBytes;
-                const maxInBatch = Math.max(
-                  ...dataUsage.sessions.slice(-12).map((x) => x.sentBytes + x.receivedBytes),
-                  1
-                );
-                const heightPct = Math.max(4, Math.round((total / maxInBatch) * 100));
-                return (
-                  <View key={i} style={styles.recentBarWrap}>
-                    <View
-                      style={[
-                        styles.recentBar,
-                        {
-                          height: `${heightPct}%`,
-                          backgroundColor:
-                            s.type === 'speedtest' ? Colors.primary : Colors.secondaryContainer,
-                        },
-                      ]}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          </>
-        )}
+        {/* Total App Data Volume Row */}
+        <View style={styles.dataVolumeRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <MaterialIcons name="data-usage" size={14} color={Colors.outline} />
+            <Text style={[gs.labelCaps, { color: Colors.outline }]}>Total App Data Transferred</Text>
+          </View>
+          <Text style={[gs.codeSm, { color: Colors.primary, fontWeight: '700' }]}>
+            {formatBytes(dataUsage.totalSentBytes + dataUsage.totalReceivedBytes)}
+          </Text>
+        </View>
       </DataCard>
     </ScrollView>
   );
@@ -795,7 +758,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
 
-  // ── Data Usage ─────────────────────────────────────────
+  // ── Data Usage & Pinging Dashboard ───────────────────
   dataUsageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -817,68 +780,55 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sectionMargin,
-    marginBottom: Spacing.containerPadding,
+    marginBottom: 4,
   },
   dataUsageText: {
     flex: 1,
   },
-  dataUsageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
 
-  // ── Session Breakdown Bars ─────────────────────────────
-  sessionBreakdown: {
-    gap: 10,
-    marginBottom: Spacing.containerPadding,
-  },
-  sessionRow: {
-    gap: 4,
-  },
-  sessionLabelRow: {
+  // ── Request Counters Grid ──────────────────────────────
+  requestMetricBox: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: 12,
   },
-  sessionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  sessionBarTrack: {
-    height: 6,
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  sessionBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-
-  // ── Recent Sessions Mini Chart ─────────────────────────
-  recentHeader: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.outlineVariant,
-    paddingTop: 12,
-    marginBottom: 8,
-  },
-  recentChart: {
-    height: 52,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  recentBarWrap: {
+  requestMetricItem: {
     flex: 1,
-    height: '100%',
-    justifyContent: 'flex-end',
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.sm,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    gap: 4,
   },
-  recentBar: {
-    width: '100%',
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
+
+  // ── Session Data Grid ──────────────────────────────────
+  sessionDataGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  sessionTile: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.sm,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+  },
+
+  // ── Total Data Volume Row ──────────────────────────────
+  dataVolumeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
   },
 });

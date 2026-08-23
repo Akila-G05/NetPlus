@@ -1,3 +1,4 @@
+import { dataUsageTracker } from '@/services/DataUsageTracker';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
 import SettingsRow from '@/components/SettingsRow';
 import StatBox from '@/components/StatBox';
@@ -272,6 +273,7 @@ export default function PingingScreen() {
     sessionRef.current.active = false;
     if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
     setIsPinging(false);
+    dataUsageTracker.setPingingActive(false);
   }, []);
 
   useEffect(() => () => stopPing(), [stopPing]);
@@ -286,6 +288,7 @@ export default function PingingScreen() {
     const requestTimeoutMs = Math.min(Math.max(intervalMs * 2, 3000), MAX_PING_MS);
 
     stopPing();
+    dataUsageTracker.setPingingActive(true);
     latenciesRef.current = [];
     setCurrentLatency(null);
     setStats(EMPTY_STATS);
@@ -301,6 +304,8 @@ export default function PingingScreen() {
       const latency =
         latencyRaw !== null ? Math.min(Math.round(latencyRaw), MAX_PING_MS) : null;
       if (!session.active) return; // stopped while in flight
+
+      dataUsageTracker.recordPingResult(latency !== null);
 
       if (latency === null) {
         setCurrentLatency(null);

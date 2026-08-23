@@ -5,6 +5,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography } from '@/constants/theme';
 
 interface CircularProgressProps {
@@ -20,6 +21,11 @@ interface CircularProgressProps {
   subLabel?: string;
   /** Formatted value shown inside */
   displayValue?: string;
+  /** MaterialIcon name to render in center instead of text */
+  icon?: keyof typeof MaterialIcons.glyphMap;
+  iconSize?: number;
+  iconColor?: string;
+  children?: React.ReactNode;
 }
 
 export default function CircularProgress({
@@ -31,10 +37,14 @@ export default function CircularProgress({
   label,
   subLabel,
   displayValue,
+  icon,
+  iconSize,
+  iconColor,
+  children,
 }: CircularProgressProps) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (progress / 100) * circumference;
+  const strokeDashoffset = circumference - (Math.min(100, Math.max(0, progress)) / 100) * circumference;
 
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
@@ -63,11 +73,21 @@ export default function CircularProgress({
       </Svg>
       {/* Center content */}
       <View style={styles.center}>
-        <Text style={[styles.value, { color: Colors.onSurface }]}>
-          {displayValue ?? `${progress}`}
-        </Text>
-        {subLabel && (
-          <Text style={styles.subLabel}>{subLabel}</Text>
+        {children ? (
+          children
+        ) : icon ? (
+          <MaterialIcons
+            name={icon}
+            size={iconSize ?? 24}
+            color={iconColor ?? color}
+          />
+        ) : (
+          <>
+            <Text style={[styles.value, { color: Colors.onSurface }]}>
+              {displayValue ?? `${progress}`}
+            </Text>
+            {subLabel && <Text style={styles.subLabel}>{subLabel}</Text>}
+          </>
         )}
       </View>
     </View>

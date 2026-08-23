@@ -5,6 +5,7 @@
 import { useEffect } from 'react';
 import { Slot } from 'expo-router';
 import '@/services/BackgroundTaskService';
+import { dataUsageTracker } from '@/services/DataUsageTracker';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
@@ -27,6 +28,10 @@ export default function RootLayout() {
     'Inter-Bold': Inter_700Bold,
     JetBrainsMono: JetBrainsMono_500Medium,
   });
+
+  useEffect(() => {
+    dataUsageTracker.init();
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

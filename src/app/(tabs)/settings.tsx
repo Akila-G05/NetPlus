@@ -242,46 +242,6 @@ export default function SettingsScreen() {
         />
       </View>
 
-      {/* ── BACKGROUND EXECUTION & MONITORING CARD ─────────── */}
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <MaterialIcons name="run-circle" size={20} color={Colors.primary} />
-          <Text style={styles.cardTitle}>BACKGROUND EXECUTION & MONITORING</Text>
-        </View>
-
-        <SettingsToggle
-          label="Background Ping Monitoring"
-          value={bgPingEnabled}
-          onValueChange={handleToggleBgPing}
-        />
-
-        <SettingsRow label="Monitoring Interval" bordered>
-          <SimpleSelect
-            options={['15 Minutes', '30 Minutes', '60 Minutes']}
-            selectedOption={bgInterval}
-            onSelect={(val) => {
-              setBgInterval(val);
-              if (bgPingEnabled) {
-                const intervalNum = parseInt(val, 10) || 15;
-                registerBackgroundPingAsync(intervalNum);
-              }
-            }}
-          />
-        </SettingsRow>
-
-        <TouchableOpacity
-          style={[styles.actionRow, styles.rowBorder]}
-          onPress={handleOpenBgLogs}
-          activeOpacity={0.7}
-        >
-          <View style={styles.actionLeft}>
-            <MaterialIcons name="history" size={20} color={Colors.primary} />
-            <Text style={styles.actionText}>View Background Diagnostic Logs</Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
-        </TouchableOpacity>
-      </View>
-
       {/* ── PRIVACY & UTILITIES CARD ──────────────────────── */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>

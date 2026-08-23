@@ -85,6 +85,10 @@ export const Colors = {
   warning: '#FFA726', // Amber – not in DESIGN.md tokens but used in graphs
 } as const;
 
+export const DarkColors = Colors;
+export const LightColors = Colors;
+
+
 // ─── Typography ──────────────────────────────────────────
 export const FontFamily = {
   inter: 'Inter',

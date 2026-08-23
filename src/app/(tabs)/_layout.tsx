@@ -2,15 +2,92 @@
  * Tabs Layout — Bottom tab navigator with 5 tabs.
  * Order: Pinging → Injector → SpeedTest → Network → Settings
  */
+import React, { useEffect, useState, memo } from 'react';
 import { Tabs } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import { Colors, Typography, Spacing } from '@/constants/theme';
+
+type IconName = keyof typeof MaterialIcons.glyphMap;
+
+// Memoized Header Title component
+const HeaderTitle = memo(function HeaderTitle() {
+  return (
+    <View style={styles.headerTitle}>
+      <MaterialIcons name="settings-input-antenna" size={22} color={Colors.primary} />
+      <Text style={styles.headerText}>NetPulse</Text>
+    </View>
+  );
+});
+
+// Memoized Header Connection Status component — isolates NetInfo updates
+const HeaderConnectionStatus = memo(function HeaderConnectionStatus() {
+  const [netState, setNetState] = useState<NetInfoState | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(setNetState);
+    NetInfo.fetch().then(setNetState);
+    return () => unsubscribe();
+  }, []);
+
+  const connected = netState?.isConnected ?? false;
+  let connIcon: IconName = 'signal-wifi-off';
+  if (connected && netState) {
+    switch (netState.type) {
+      case 'cellular':
+        connIcon = 'signal-cellular-4-bar';
+        break;
+      case 'wifi':
+        connIcon = 'wifi';
+        break;
+      case 'ethernet':
+        connIcon = 'lan';
+        break;
+      default:
+        connIcon = 'public';
+        break;
+    }
+  }
+
+  return (
+    <View style={styles.headerRight}>
+      <MaterialIcons
+        name={connIcon}
+        size={20}
+        color={connected ? Colors.tertiary : Colors.error}
+      />
+    </View>
+  );
+});
+
+// Memoized TabBarIcon helper
+interface TabBarIconProps {
+  name: IconName;
+  color: string;
+  focused: boolean;
+}
+
+const TabBarIcon = memo(function TabBarIcon({ name, color, focused }: TabBarIconProps) {
+  return (
+    <View style={[styles.iconWrap, focused && styles.activeIconWrap]}>
+      <MaterialIcons name={name} size={22} color={focused ? Colors.primary : color} />
+    </View>
+  );
+});
+
+const renderHeaderTitle = () => <HeaderTitle />;
+const renderHeaderRight = () => <HeaderConnectionStatus />;
 
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
+        // ── Performance & Animations ────────────────────
+        freezeOnBlur: true,
+        animation: 'fade',
+        sceneStyle: { backgroundColor: Colors.background },
+
         // ── Header ───────────────────────────────────────
         headerStyle: {
           backgroundColor: Colors.surfaceContainer,
@@ -19,18 +96,8 @@ export default function TabsLayout() {
           shadowColor: 'transparent',
           elevation: 0,
         },
-        headerTitle: () => (
-          <View style={styles.headerTitle}>
-            <MaterialIcons name="settings-input-antenna" size={22} color={Colors.primary} />
-            <Text style={styles.headerText}>Network Utility</Text>
-          </View>
-        ),
-        headerRight: () => (
-          <View style={styles.headerRight}>
-            <Text style={styles.headerStatus}>5G • LTE</Text>
-            <View style={styles.statusDotSmall} />
-          </View>
-        ),
+        headerTitle: renderHeaderTitle,
+        headerRight: renderHeaderRight,
         headerTitleAlign: 'left',
 
         // ── Tab bar ──────────────────────────────────────
@@ -38,21 +105,24 @@ export default function TabsLayout() {
           backgroundColor: Colors.surfaceContainer,
           borderTopWidth: 1,
           borderTopColor: Colors.outlineVariant,
-          height: 64,
+          height: 68,
           paddingBottom: 8,
-          paddingTop: 4,
+          paddingTop: 6,
           elevation: 0,
           shadowColor: 'transparent',
         },
-        tabBarActiveTintColor: Colors.onSecondaryContainer,
+        tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.onSurfaceVariant,
         tabBarLabelStyle: {
           ...Typography.labelCaps,
           fontSize: 10,
-          marginTop: 2,
+          marginTop: 4,
+          fontWeight: '600',
         },
         tabBarItemStyle: {
           paddingVertical: 2,
+          justifyContent: 'center',
+          alignItems: 'center',
         },
         tabBarActiveBackgroundColor: 'transparent',
       }}
@@ -63,13 +133,7 @@ export default function TabsLayout() {
         options={{
           title: 'Pinging',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconWrap : undefined}>
-              <MaterialIcons
-                name="wifi-tethering"
-                size={22}
-                color={focused ? Colors.onSecondaryContainer : color}
-              />
-            </View>
+            <TabBarIcon name="wifi-tethering" color={color} focused={focused} />
           ),
         }}
       />
@@ -80,13 +144,7 @@ export default function TabsLayout() {
         options={{
           title: 'Injector',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconWrap : undefined}>
-              <MaterialIcons
-                name="terminal"
-                size={22}
-                color={focused ? Colors.onSecondaryContainer : color}
-              />
-            </View>
+            <TabBarIcon name="terminal" color={color} focused={focused} />
           ),
         }}
       />
@@ -97,13 +155,7 @@ export default function TabsLayout() {
         options={{
           title: 'SpeedTest',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconWrap : undefined}>
-              <MaterialIcons
-                name="speed"
-                size={22}
-                color={focused ? Colors.onSecondaryContainer : color}
-              />
-            </View>
+            <TabBarIcon name="speed" color={color} focused={focused} />
           ),
         }}
       />
@@ -114,13 +166,7 @@ export default function TabsLayout() {
         options={{
           title: 'Network',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconWrap : undefined}>
-              <MaterialIcons
-                name="router"
-                size={22}
-                color={focused ? Colors.onSecondaryContainer : color}
-              />
-            </View>
+            <TabBarIcon name="router" color={color} focused={focused} />
           ),
         }}
       />
@@ -131,13 +177,7 @@ export default function TabsLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIconWrap : undefined}>
-              <MaterialIcons
-                name="settings"
-                size={22}
-                color={focused ? Colors.onSecondaryContainer : color}
-              />
-            </View>
+            <TabBarIcon name="settings" color={color} focused={focused} />
           ),
         }}
       />
@@ -154,7 +194,6 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  // ── Header ─────────────────────────────────────────────
   headerTitle: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -171,22 +210,17 @@ const styles = StyleSheet.create({
     gap: Spacing.elementGap,
     marginRight: Spacing.containerPadding,
   },
-  headerStatus: {
-    ...Typography.codeSm,
-    color: Colors.onSurfaceVariant,
+  iconWrap: {
+    width: 52,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
-  statusDotSmall: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.tertiary,
-  },
-
-  // ── Tab bar ────────────────────────────────────────────
   activeIconWrap: {
-    backgroundColor: Colors.secondaryContainer,
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 4,
+    backgroundColor: 'rgba(75, 142, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(173, 198, 255, 0.3)',
   },
 });

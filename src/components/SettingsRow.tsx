@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { View, Text, Switch, StyleSheet, type ViewStyle } from 'react-native';
-import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import { Colors, Typography } from '@/constants/theme';
 
 interface SettingsRowProps {
   label: string;

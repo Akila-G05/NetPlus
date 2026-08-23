@@ -16,7 +16,7 @@ interface StatBoxProps {
   style?: ViewStyle;
 }
 
-export default function StatBox({
+export default React.memo(function StatBox({
   label,
   value,
   unit,
@@ -39,7 +39,7 @@ export default function StatBox({
       </Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

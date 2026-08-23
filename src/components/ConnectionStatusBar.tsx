@@ -1,40 +1,106 @@
 /**
  * ConnectionStatusBar — Top connection status indicator.
- * Shows connectivity state, network type, and carrier.
+ * Live connectivity state, network generation (2G/3G/4G/5G), and
+ * carrier/provider name via @react-native-community/netinfo.
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import { Colors, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
 
-interface ConnectionStatusBarProps {
-  connected?: boolean;
-  networkType?: string;
-  carrier?: string;
-}
+const GENERATION_LABELS: Record<string, string> = {
+  '0g': 'NO SIGNAL',
+  '1g': '2G',
+  '2g': '2G',
+  '3g': '3G',
+  '4g': '4G',
+  '5g': '5G',
+};
 
-export default function ConnectionStatusBar({
-  connected = true,
-  networkType = '4G LTE',
-  carrier = 'Dialog',
-}: ConnectionStatusBarProps) {
+type IconName = keyof typeof MaterialIcons.glyphMap;
+
+export default function ConnectionStatusBar() {
+  const [state, setState] = useState<NetInfoState | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(setState);
+    NetInfo.fetch().then(setState);
+    return () => unsubscribe();
+  }, []);
+
+  const connected = state?.isConnected ?? false;
+  const internetReachable = state?.isInternetReachable;
+
+  const status = !connected
+    ? 'Disconnected'
+    : internetReachable === false
+      ? 'Limited'
+      : 'Connected';
+
+  let networkType = '';
+  let carrier = '';
+  let statusIcon: IconName = 'signal-wifi-off';
+
+  if (connected && state) {
+    switch (state.type) {
+      case 'cellular': {
+        const gen = state.details.cellularGeneration;
+        networkType =
+          gen != null ? GENERATION_LABELS[gen] ?? gen.toUpperCase() : 'CELLULAR';
+        carrier = state.details.carrier ?? '';
+        statusIcon = 'signal-cellular-alt';
+        break;
+      }
+      case 'wifi': {
+        networkType = 'WI-FI';
+        carrier = state.details.ssid ?? '';
+        statusIcon = 'wifi';
+        break;
+      }
+      case 'ethernet':
+        networkType = 'ETHERNET';
+        statusIcon = 'lan';
+        break;
+      default:
+        networkType = 'ONLINE';
+        statusIcon = 'public';
+        break;
+    }
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.left}>
-        <View style={[gs.statusDotGlow, !connected && { backgroundColor: Colors.error }]} />
-        <Text style={[gs.bodyMd, { color: Colors.onSurface }]}>
-          {connected ? 'Connected' : 'Disconnected'}
-        </Text>
+        <View
+          style={[
+            gs.statusDotGlow,
+            (!connected || internetReachable === false) && { backgroundColor: Colors.error },
+          ]}
+        />
+        <Text style={[gs.bodyMd, { color: Colors.onSurface }]}>{status}</Text>
       </View>
 
       <View style={styles.right}>
-        <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>{networkType}</Text>
-        <View style={styles.separator} />
-        <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>{carrier}</Text>
+        {connected && (
+          <>
+            <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>
+              {networkType}
+            </Text>
+            {carrier ? (
+              <>
+                <View style={styles.separator} />
+                <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>
+                  {carrier.toUpperCase()}
+                </Text>
+              </>
+            ) : null}
+          </>
+        )}
       </View>
 
-      <MaterialIcons name="info-outline" size={20} color={Colors.onSurfaceVariant} />
+      <MaterialIcons name={statusIcon} size={20} color={Colors.onSurfaceVariant} />
     </View>
   );
 }

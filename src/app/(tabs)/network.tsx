@@ -10,11 +10,12 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  Platform,
 } from 'react-native';
+import * as Device from 'expo-device';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
-import * as Network from 'expo-network';
 import { useIsFocused } from '@react-navigation/native';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
@@ -126,17 +127,7 @@ async function measureUploadSpeed(
   }
 }
 
-// Conventional first-host address of the IPv4 subnet (e.g. x.x.x.1)
-function estimateGateway(ip: string, subnet: string): string {
-  const ipParts = ip.split('.').map(Number);
-  const maskParts = subnet.split('.').map(Number);
-  if (ipParts.length !== 4 || maskParts.length !== 4 || maskParts.some(Number.isNaN)) {
-    return '--';
-  }
-  const network = ipParts.map((part, i) => part & maskParts[i]);
-  network[3] += 1;
-  return network.join('.');
-}
+
 
 function buildSparklinePath(values: number[]): string {
   if (values.length < 2) return 'M0,100 L100,100 Z';
@@ -155,8 +146,6 @@ export default function NetworkScreen() {
   const [state, setState] = useState<NetInfoState | null>(null);
   const [publicIp, setPublicIp] = useState('--');
   const [dnsServer, setDnsServer] = useState('--');
-  const [localIp, setLocalIp] = useState('--');
-  const [gateway, setGateway] = useState('--');
   const [downloadSpeed, setDownloadSpeed] = useState<number | null>(null);
   const [uploadSpeed, setUploadSpeed] = useState<number | null>(null);
   const [history, setHistory] = useState<number[]>([]);
@@ -212,40 +201,7 @@ export default function NetworkScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connType]);
 
-  // Local IP + gateway. NetInfo only exposes these on Wi-Fi, so fall back to
-  // expo-network (active interface) for cellular. Gateway is only estimable
-  // from a Wi-Fi subnet — carrier networks don't expose it.
-  useEffect(() => {
-    let cancelled = false;
 
-    if (!state?.isConnected) {
-      setLocalIp('--');
-      setGateway('--');
-      return;
-    }
-
-    if (state.type === 'wifi') {
-      const { ipAddress, subnet } = state.details;
-      if (ipAddress) {
-        setLocalIp(ipAddress);
-        setGateway(subnet ? estimateGateway(ipAddress, subnet) : '--');
-        return;
-      }
-    }
-
-    Network.getIpAddressAsync()
-      .then((ipAddress) => {
-        if (!cancelled && ipAddress && ipAddress !== '0.0.0.0') {
-          setLocalIp(ipAddress);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connType]);
 
 
   // Real-time live rate sampling (every 500ms) for live traffic meter
@@ -375,8 +331,8 @@ export default function NetworkScreen() {
 
         {/* Metrics Grid */}
         <View style={styles.metricsGrid}>
-          <MetricItem label="Model" value={localIp} />
-          <MetricItem label="OS Version" value={gateway} />
+          <MetricItem label="Model" value={Device.modelName ?? 'Unknown'} />
+          <MetricItem label="OS Version" value={`${Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : Platform.OS} ${Device.osVersion ?? ''}`} />
           <MetricItem label="Public IP" value={publicIp} />
           <MetricItem label="DNS" value={dnsServer} />
         </View>

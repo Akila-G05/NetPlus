@@ -182,10 +182,9 @@ export function formatBytes(bytes: number): string {
 }
 
 export function formatSpeedRate(bytesPerSec: number): string {
-  if (bytesPerSec <= 0) return '0 KB/s';
+  if (bytesPerSec <= 0) return '0 B/s';
   if (bytesPerSec < 1024) return `${Math.round(bytesPerSec)} B/s`;
   if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-  const mbps = (bytesPerSec * 8) / 1_000_000;
-  if (mbps >= 10) return `${mbps.toFixed(1)} Mbps`;
-  return `${mbps.toFixed(2)} Mbps`;
+  if (bytesPerSec < 1024 * 1024 * 1024) return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  return `${(bytesPerSec / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
 }

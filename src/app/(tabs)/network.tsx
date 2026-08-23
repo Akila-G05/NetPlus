@@ -149,11 +149,7 @@ function buildSparklinePath(values: number[]): string {
   return `${d} L100,100 Z`;
 }
 
-function formatMbps(value: number): string {
-  if (value >= 100) return value.toFixed(0);
-  if (value >= 10) return value.toFixed(1);
-  return value.toFixed(2);
-}
+
 
 export default function NetworkScreen() {
   const [state, setState] = useState<NetInfoState | null>(null);
@@ -251,7 +247,7 @@ export default function NetworkScreen() {
     const rateInterval = setInterval(() => {
       const rate = dataUsageTracker.getLiveRate(1000);
       setLiveRates(rate);
-    }, 1500);
+    }, 2000);
     return () => clearInterval(rateInterval);
   }, [isFocused, monitoring]);
 
@@ -395,8 +391,8 @@ export default function NetworkScreen() {
                   {liveRates.rxBytesPerSec > 0
                     ? formatSpeedRate(liveRates.rxBytesPerSec)
                     : downloadSpeed !== null
-                    ? `${formatMbps(downloadSpeed)} Mbps`
-                    : '0 KB/s'}
+                    ? formatSpeedRate((downloadSpeed * 1_000_000) / 8)
+                    : '0 B/s'}
                 </Text>
               </View>
               <View style={[styles.activityStat, styles.liveBadge]}>
@@ -404,8 +400,8 @@ export default function NetworkScreen() {
                   {liveRates.txBytesPerSec > 0
                     ? formatSpeedRate(liveRates.txBytesPerSec)
                     : uploadSpeed !== null
-                    ? `${formatMbps(uploadSpeed)} Mbps`
-                    : '0 KB/s'}
+                    ? formatSpeedRate((uploadSpeed * 1_000_000) / 8)
+                    : '0 B/s'}
                 </Text>
                 <MaterialIcons name="pause-circle-outline" size={16} color={Colors.onSurfaceVariant} />
               </View>

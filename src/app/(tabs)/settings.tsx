@@ -2,7 +2,7 @@
  * Settings Tab — Application preferences, privacy, system diagnostics, and about info.
  * Includes Solarfox developer details, feature descriptions, Privacy Policy, App Rating & Reset.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
 import SettingsRow, { SettingsToggle } from '@/components/SettingsRow';
+import {
+  registerBackgroundPingAsync,
+  unregisterBackgroundPingAsync,
+  isBackgroundPingRegisteredAsync,
+  getBackgroundLogsAsync,
+  clearBackgroundLogsAsync,
+  type BackgroundLogEntry,
+} from '@/services/BackgroundTaskService';
 
 interface SimpleSelectProps {
   options: string[];
@@ -87,11 +95,14 @@ function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) 
 }
 
 export default function SettingsScreen() {
-  // General State
-  const [theme, setTheme] = useState('Dark Mode');
-  const [language, setLanguage] = useState('English (US)');
+  // General State — kept for when Theme/Language/Notifications UI is re-enabled
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_theme, _setTheme] = useState('Dark Mode');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_language, _setLanguage] = useState('English (US)');
   const [dataUnits, setDataUnits] = useState('Mbps');
-  const [notifications, setNotifications] = useState(true);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_notifications, _setNotifications] = useState(true);
   const [autoSaveLogs, setAutoSaveLogs] = useState(true);
 
   // Modals state
@@ -105,12 +116,57 @@ export default function SettingsScreen() {
   const [ratingFeedback, setRatingFeedback] = useState('');
   const [ratedSubmitted, setRatedSubmitted] = useState(false);
 
+  // Background Pinging State
+  const [bgPingEnabled, setBgPingEnabled] = useState(false);
+  const [bgInterval, setBgInterval] = useState('15 Minutes');
+  const [bgLogsModalVisible, setBgLogsModalVisible] = useState(false);
+  const [bgLogs, setBgLogs] = useState<BackgroundLogEntry[]>([]);
+
+  useEffect(() => {
+    isBackgroundPingRegisteredAsync().then(setBgPingEnabled);
+  }, []);
+
+  const handleToggleBgPing = async (val: boolean) => {
+    setBgPingEnabled(val);
+    if (val) {
+      const intervalNum = parseInt(bgInterval, 10) || 15;
+      const success = await registerBackgroundPingAsync(intervalNum);
+      if (success) {
+        Alert.alert(
+          'Background Monitoring Active',
+          `NetPulse will monitor network status & latency in the background every ${intervalNum} minutes.`
+        );
+      } else {
+        setBgPingEnabled(false);
+        Alert.alert('Error', 'Could not register background monitoring task.');
+      }
+    } else {
+      await unregisterBackgroundPingAsync();
+      Alert.alert(
+        'Background Monitoring Stopped',
+        'Periodic background ping monitoring is disabled.'
+      );
+    }
+  };
+
+  const handleOpenBgLogs = async () => {
+    const logs = await getBackgroundLogsAsync();
+    setBgLogs(logs);
+    setBgLogsModalVisible(true);
+  };
+
+  const handleClearBgLogs = async () => {
+    await clearBackgroundLogsAsync();
+    setBgLogs([]);
+    Alert.alert('Logs Cleared', 'Background diagnostic logs have been reset.');
+  };
+
   // App Reset Handler
   const handleResetApp = () => {
-    setTheme('Dark Mode');
-    setLanguage('English (US)');
+    _setTheme('Dark Mode');
+    _setLanguage('English (US)');
     setDataUnits('Mbps');
-    setNotifications(true);
+    _setNotifications(true);
     setAutoSaveLogs(true);
     setResetModalVisible(false);
     Alert.alert('App Reset Complete', 'All settings and local cached diagnostic configurations have been restored to defaults.');
@@ -184,6 +240,46 @@ export default function SettingsScreen() {
           onValueChange={setAutoSaveLogs}
           bordered
         />
+      </View>
+
+      {/* ── BACKGROUND EXECUTION & MONITORING CARD ─────────── */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <MaterialIcons name="run-circle" size={20} color={Colors.primary} />
+          <Text style={styles.cardTitle}>BACKGROUND EXECUTION & MONITORING</Text>
+        </View>
+
+        <SettingsToggle
+          label="Background Ping Monitoring"
+          value={bgPingEnabled}
+          onValueChange={handleToggleBgPing}
+        />
+
+        <SettingsRow label="Monitoring Interval" bordered>
+          <SimpleSelect
+            options={['15 Minutes', '30 Minutes', '60 Minutes']}
+            selectedOption={bgInterval}
+            onSelect={(val) => {
+              setBgInterval(val);
+              if (bgPingEnabled) {
+                const intervalNum = parseInt(val, 10) || 15;
+                registerBackgroundPingAsync(intervalNum);
+              }
+            }}
+          />
+        </SettingsRow>
+
+        <TouchableOpacity
+          style={[styles.actionRow, styles.rowBorder]}
+          onPress={handleOpenBgLogs}
+          activeOpacity={0.7}
+        >
+          <View style={styles.actionLeft}>
+            <MaterialIcons name="history" size={20} color={Colors.primary} />
+            <Text style={styles.actionText}>View Background Diagnostic Logs</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
+        </TouchableOpacity>
       </View>
 
       {/* ── PRIVACY & UTILITIES CARD ──────────────────────── */}
@@ -519,6 +615,105 @@ export default function SettingsScreen() {
             >
               <Text style={gs.btnPrimaryText}>Accept & Close</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── BACKGROUND DIAGNOSTIC LOGS MODAL ───────────────── */}
+      <Modal
+        visible={bgLogsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setBgLogsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+            <View style={styles.cardHeader}>
+              <MaterialIcons name="history" size={22} color={Colors.primary} />
+              <Text style={styles.modalTitle}>Background Diagnostic Logs</Text>
+            </View>
+
+            {bgLogs.length === 0 ? (
+              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+                <MaterialIcons name="event-note" size={40} color={Colors.outline} />
+                <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 8 }]}>
+                  No background logs recorded yet.
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={bgLogs}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
+                renderItem={({ item }) => (
+                  <View
+                    style={{
+                      backgroundColor: Colors.surfaceContainerHigh,
+                      borderRadius: BorderRadius.default,
+                      padding: 10,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <View>
+                      <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
+                        {item.timestamp} • {item.host}
+                      </Text>
+                      <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
+                        {item.networkType} • {item.latencyMs} ms
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 4,
+                        backgroundColor:
+                          item.status === 'SUCCESS'
+                            ? 'rgba(120, 220, 119, 0.15)'
+                            : item.status === 'HIGH_LATENCY'
+                            ? 'rgba(255, 167, 38, 0.15)'
+                            : 'rgba(255, 180, 171, 0.15)',
+                      }}
+                    >
+                      <Text
+                        style={[
+                          gs.labelCaps,
+                          {
+                            color:
+                              item.status === 'SUCCESS'
+                                ? Colors.tertiary
+                                : item.status === 'HIGH_LATENCY'
+                                ? Colors.warning
+                                : Colors.error,
+                            fontSize: 10,
+                          },
+                        ]}
+                      >
+                        {item.status}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              />
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity
+                style={[gs.btnSecondary, { flex: 1 }]}
+                onPress={handleClearBgLogs}
+              >
+                <Text style={gs.btnSecondaryText}>Clear Logs</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[gs.btnPrimary, { flex: 1 }]}
+                onPress={() => setBgLogsModalVisible(false)}
+              >
+                <Text style={gs.btnPrimaryText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

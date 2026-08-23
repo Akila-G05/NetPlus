@@ -1,21 +1,89 @@
-/**
- * Pinging Tab — Main ping diagnostic screen.
- * Faithfully recreates the design from UI/pinging_home/screen.png.
- */
-import React from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Animated,
-} from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
-import { gs } from '@/styles/globalStyles';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
+import SettingsRow from '@/components/SettingsRow';
 import StatBox from '@/components/StatBox';
+import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
+import { gs } from '@/styles/globalStyles';
+import { MaterialIcons } from '@expo/vector-icons';
+import React, { useState } from 'react';
+import {
+  Animated,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+// ── SimpleSelect dropdown modal helper ───────────────────
+interface SimpleSelectProps {
+  options: string[];
+  selectedOption: string;
+  onSelect: (option: string) => void;
+}
+
+function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) {
+  const [modalVisible, setModalVisible] = useState(false);
+
+  return (
+    <>
+      <TouchableOpacity
+        style={styles.selectTrigger}
+        onPress={() => setModalVisible(true)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.selectTriggerText}>{selectedOption}</Text>
+        <MaterialIcons name="arrow-drop-down" size={18} color={Colors.onSurfaceVariant} />
+      </TouchableOpacity>
+
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.selectModalOverlay}
+          activeOpacity={1}
+          onPress={() => setModalVisible(false)}
+        >
+          <View style={styles.selectModalContent}>
+            <FlatList
+              data={options}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalOption,
+                    item === selectedOption && styles.modalOptionSelected,
+                  ]}
+                  onPress={() => {
+                    onSelect(item);
+                    setModalVisible(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modalOptionText,
+                      item === selectedOption && styles.modalOptionTextSelected,
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                  {item === selectedOption && (
+                    <MaterialIcons name="check" size={18} color={Colors.primary} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </>
+  );
+}
 
 // ── Pulse animation hook ─────────────────────────────────
 function usePulse() {
@@ -42,6 +110,36 @@ function usePulse() {
 export default function PingingScreen() {
   const pulseScale = usePulse();
 
+  // Ping Configuration State
+  const [configModalVisible, setConfigModalVisible] = useState(false);
+  const [targetConnection, setTargetConnection] = useState('Google DNS — 8.8.8.8');
+  const [customHost, setCustomHost] = useState('');
+  const [pingDuration, setPingDuration] = useState('Continuous');
+  const [pingInterval, setPingInterval] = useState('1000 ms (1s)');
+
+  const targetOptions = [
+    'Google DNS — 8.8.8.8',
+    'Cloudflare DNS — 1.1.1.1',
+    'Quad9 DNS — 9.9.9.9',
+    'Local Gateway — 192.168.1.1',
+    'Custom Host / IP',
+  ];
+
+  const durationOptions = [
+    '10 Seconds',
+    '30 Seconds',
+    '1 Minute',
+    '5 Minutes',
+    'Continuous',
+  ];
+
+  const intervalOptions = [
+    '500 ms',
+    '1000 ms (1s)',
+    '2000 ms (2s)',
+    '5000 ms (5s)',
+  ];
+
   return (
     <ScrollView
       style={gs.screenContainer}
@@ -57,15 +155,25 @@ export default function PingingScreen() {
         <View style={styles.pingGlow} />
 
         {/* Destination */}
-        <View style={styles.destinationWrap}>
+        <TouchableOpacity
+          style={styles.destinationWrap}
+          disabled={true}
+          onPress={() => {
+            console.log("Pressed");
+          }}
+          activeOpacity={0.7}
+        >
           <Text style={[gs.labelCaps, styles.destinationLabel]}>Destination</Text>
           <View style={gs.chip}>
             <MaterialIcons name="public" size={14} color={Colors.primary} />
             <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
-              Google DNS — 8.8.8.8
+              {targetConnection === 'Custom Host / IP' && customHost
+                ? customHost
+                : targetConnection}
             </Text>
+            <MaterialIcons name="edit" size={14} color={Colors.onSurfaceVariant} style={{ marginLeft: 4 }} />
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Ping value with pulse rings */}
         <View style={styles.pingValueWrap}>
@@ -104,6 +212,19 @@ export default function PingingScreen() {
           <Text style={gs.btnPrimaryText}>Start Ping</Text>
         </TouchableOpacity>
       </View>
+      
+      {/* ── Settings shortcut ────────────────────────────── */}
+      <TouchableOpacity
+        style={styles.settingsRow}
+        activeOpacity={0.7}
+        onPress={() => setConfigModalVisible(true)}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <MaterialIcons name="tune" size={18} color={Colors.primary} />
+          <Text style={[gs.bodyMd, { color: Colors.onSurface }]}>Target & Time Settings</Text>
+        </View>
+        <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
+      </TouchableOpacity>
 
       {/* ── Statistics Grid ──────────────────────────────── */}
       <View style={styles.statsGrid}>
@@ -137,14 +258,8 @@ export default function PingingScreen() {
         </View>
       </View>
 
-      {/* ── Settings shortcut ────────────────────────────── */}
-      <TouchableOpacity style={styles.settingsRow} activeOpacity={0.7}>
-        <Text style={[gs.bodyMd, { color: Colors.onSurface }]}>Settings</Text>
-        <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
-      </TouchableOpacity>
-
       {/* ── Latency Graph ────────────────────────────────── */}
-      <View style={styles.graphCard}>
+      {/* <View style={styles.graphCard}>
         <View style={styles.graphHeader}>
           <Text style={gs.labelCaps}>LATENCY (LAST 60S)</Text>
           <View style={styles.graphLegend}>
@@ -154,7 +269,7 @@ export default function PingingScreen() {
           </View>
         </View>
         <View style={styles.graphArea}>
-          {/* Simple bar chart representation */}
+          
           {[40, 42, 38, 45, 85, 41, 39, 42].map((val, i) => {
             const isSpike = val > 60;
             return (
@@ -172,17 +287,16 @@ export default function PingingScreen() {
               />
             );
           })}
-          {/* Threshold lines */}
+
+
           <View style={[styles.thresholdLine, { bottom: '60%', borderColor: 'rgba(255, 167, 38, 0.3)' }]} />
           <View style={[styles.thresholdLine, { bottom: '80%', borderColor: 'rgba(255, 180, 171, 0.3)' }]} />
         </View>
-      </View>
+      </View> */}
 
       {/* ── Recent Sessions ──────────────────────────────── */}
-      <View style={styles.sessionsSection}>
+      {/* <View style={styles.sessionsSection}>
         <Text style={[gs.labelCaps, { marginBottom: 8 }]}>RECENT SESSIONS</Text>
-
-        {/* Session 1 */}
         <TouchableOpacity style={styles.sessionItem} activeOpacity={0.7}>
           <View style={styles.sessionLeft}>
             <View style={styles.sessionIcon}>
@@ -206,7 +320,6 @@ export default function PingingScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Session 2 */}
         <TouchableOpacity style={[styles.sessionItem, { opacity: 0.7 }]} activeOpacity={0.7}>
           <View style={styles.sessionLeft}>
             <View style={styles.sessionIcon}>
@@ -229,7 +342,77 @@ export default function PingingScreen() {
             </View>
           </View>
         </TouchableOpacity>
-      </View>
+      </View> */}
+
+      {/* ── Ping Target & Timing Configuration Modal ──────────────── */}
+      <Modal
+        visible={configModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfigModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.configModalOverlay}
+          activeOpacity={1}
+          onPress={() => setConfigModalVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.cardModalContainer}>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <MaterialIcons name="tune" size={20} color={Colors.primary} />
+                  <Text style={styles.cardTitle}>TARGET & TIMING</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setConfigModalVisible(false)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <MaterialIcons name="close" size={20} color={Colors.onSurfaceVariant} />
+                </TouchableOpacity>
+              </View>
+
+              <SettingsRow label="Target Connection">
+                <SimpleSelect
+                  options={targetOptions}
+                  selectedOption={targetConnection}
+                  onSelect={setTargetConnection}
+                />
+              </SettingsRow>
+
+              {targetConnection === 'Custom Host / IP' && (
+                <View style={styles.customHostWrap}>
+                  <Text style={styles.customHostLabel}>Custom IP or Hostname:</Text>
+                  <TextInput
+                    style={styles.customHostInput}
+                    placeholder="e.g. 192.168.1.50 or example.com"
+                    placeholderTextColor={Colors.outline}
+                    value={customHost}
+                    onChangeText={setCustomHost}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              )}
+
+              <SettingsRow label="Ping Interval" bordered>
+                <SimpleSelect
+                  options={intervalOptions}
+                  selectedOption={pingInterval}
+                  onSelect={setPingInterval}
+                />
+              </SettingsRow>
+
+              <TouchableOpacity
+                style={[gs.btnPrimary, { marginTop: 16 }]}
+                onPress={() => setConfigModalVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={gs.btnPrimaryText}>Save & Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }
@@ -250,7 +433,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     opacity: 0.1,
     backgroundColor: 'transparent',
-    // Simulated radial gradient via a centered colored overlay
   },
   destinationWrap: {
     alignItems: 'center',
@@ -447,4 +629,105 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 4,
   },
+
+  // ── Modal & Select Styles ──────────────────────────────
+  cardModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+  },
+  configModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  card: {
+    backgroundColor: Colors.surfaceContainer,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    padding: Spacing.containerPadding,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.outlineVariant,
+    paddingBottom: 10,
+    marginBottom: 8,
+  },
+  cardTitle: {
+    ...Typography.labelCaps,
+    color: Colors.onSurface,
+  },
+  selectTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  selectTriggerText: {
+    ...Typography.codeSm,
+    color: Colors.onSurface,
+  },
+  selectModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  selectModalContent: {
+    width: '80%',
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    paddingVertical: 8,
+    maxHeight: 300,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  modalOptionSelected: {
+    backgroundColor: Colors.surfaceBright,
+  },
+  modalOptionText: {
+    ...Typography.bodyMd,
+    color: Colors.onSurface,
+  },
+  modalOptionTextSelected: {
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  customHostWrap: {
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.outlineVariant,
+  },
+  customHostLabel: {
+    ...Typography.codeSm,
+    color: Colors.onSurfaceVariant,
+    marginBottom: 6,
+  },
+  customHostInput: {
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: Colors.onSurface,
+    ...Typography.codeSm,
+  },
 });
+

@@ -26,6 +26,8 @@ import {
   clearBackgroundLogsAsync,
   type BackgroundLogEntry,
 } from '@/services/BackgroundTaskService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { dataUsageTracker } from '@/services/DataUsageTracker';
 
 interface SimpleSelectProps {
   options: string[];
@@ -166,14 +168,27 @@ export default function SettingsScreen() {
   };
 
   // App Reset Handler
-  const handleResetApp = () => {
+  const handleResetApp = async () => {
     _setTheme('Dark Mode');
     _setLanguage('English (US)');
     setDataUnits('Mbps');
     _setNotifications(true);
     setAutoSaveLogs(true);
     setResetModalVisible(false);
-    Alert.alert('App Reset Complete', 'All settings and local cached diagnostic configurations have been restored to defaults.');
+
+    try {
+      await AsyncStorage.clear();
+      dataUsageTracker.reset();
+      Alert.alert(
+        'App Reset Complete',
+        'All settings, local storage, and cached diagnostic configurations have been restored to defaults.'
+      );
+    } catch {
+      Alert.alert(
+        'App Reset Complete',
+        'All settings and local cached diagnostic configurations have been restored to defaults.'
+      );
+    }
   };
 
   const handleRatingSubmit = () => {

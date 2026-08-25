@@ -3,25 +3,27 @@
  * speed test card, quality score, and data usage.
  * Recreates UI/network_dashboard/screen.png.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Platform,
-} from 'react-native';
-import * as Device from 'expo-device';
+import CircularProgress from '@/components/CircularProgress';
+import DataCard from '@/components/DataCard';
+import { BorderRadius, Colors, FontFamily, Spacing, Typography } from '@/constants/theme';
+import { dataUsageTracker, formatBytes, formatSpeedRate, type DataUsageStats } from '@/services/DataUsageTracker';
+import { gs } from '@/styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
-import Svg, { Path } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { useIsFocused } from '@react-navigation/native';
-import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
-import { gs } from '@/styles/globalStyles';
-import DataCard from '@/components/DataCard';
-import CircularProgress from '@/components/CircularProgress';
-import { dataUsageTracker, formatBytes, formatSpeedRate, type DataUsageStats } from '@/services/DataUsageTracker';
+import * as Device from 'expo-device';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 // ── Live network helpers ─────────────────────────────────
 const SPEED_INTERVAL_MS = 4000;
@@ -140,6 +142,21 @@ function buildSparklinePath(values: number[]): string {
   return `${d} L100,100 Z`;
 }
 
+function formatCompact(num: number): string {
+  if (num < 1000) return String(num);
+  if (num < 10000) return `${(num / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (num < 100000) return `${(num / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (num < 1000000) return `${Math.round(num / 1000)}k`;
+  return `${(num / 1000000).toFixed(1).replace(/\.0$/, '')}M+`;
+}
+
+function formatBytesToMB(bytes: number): string {
+  if (bytes === 0) return '0.00 MB';
+  const mb = bytes / (1024 * 1024);
+  if (mb < 0.01) return '< 0.01 MB';
+  return `${mb.toFixed(2)} MB`;
+}
+
 
 
 export default function NetworkScreen() {
@@ -156,19 +173,64 @@ export default function NetworkScreen() {
   const [dataUsage, setDataUsage] = useState<DataUsageStats>(dataUsageTracker.getStats());
   const isFocused = useIsFocused();
 
+  // Phone Storage Usage state
+  const [storageSize, setStorageSize] = useState(0);
+
+  const fetchStorageSize = useCallback(async () => {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const pairs = await AsyncStorage.multiGet(keys);
+      let total = 0;
+      for (const [key, val] of pairs) {
+        if (val) {
+          total += key.length + val.length;
+        }
+      }
+      setStorageSize(total);
+    } catch {
+      setStorageSize(0);
+    }
+  }, []);
+
+  const handleClearAppData = useCallback(() => {
+    Alert.alert(
+      'Clear App Storage?',
+      'This will delete all background diagnostic logs, data usage history, and restore preferences to default.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.clear();
+              dataUsageTracker.reset();
+              await fetchStorageSize();
+              Alert.alert('Data Cleared', 'All local app storage has been reset.');
+            } catch {
+              Alert.alert('Error', 'Failed to clear app storage.');
+            }
+          },
+        },
+      ]
+    );
+  }, [fetchStorageSize]);
+
   useEffect(() => {
     return dataUsageTracker.subscribe(() => {
       setDataUsage(dataUsageTracker.getStats());
+      fetchStorageSize();
     });
-  }, []);
+  }, [fetchStorageSize]);
 
   // Re-sync data usage stats when tab regains focus (freezeOnBlur pauses
   // subscriber callbacks while un-focused, so we need to re-read on focus)
   useEffect(() => {
     if (isFocused) {
       setDataUsage(dataUsageTracker.getStats());
+      fetchStorageSize();
     }
-  }, [isFocused]);
+  }, [isFocused, fetchStorageSize]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleResetDataUsage = useCallback(() => {
@@ -191,13 +253,13 @@ export default function NetworkScreen() {
       .then((data) => {
         if (typeof data?.ip === 'string') setPublicIp(data.ip);
       })
-      .catch(() => {});
+      .catch(() => { });
     fetch('https://edns.ip-api.com/json', { cache: 'no-store' })
       .then((res) => res.json())
       .then((data) => {
         if (typeof data?.dns?.ip === 'string') setDnsServer(data.dns.ip);
       })
-      .catch(() => {});
+      .catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connType]);
 
@@ -354,8 +416,8 @@ export default function NetworkScreen() {
                   {liveRates.rxBytesPerSec > 0
                     ? formatSpeedRate(liveRates.rxBytesPerSec)
                     : downloadSpeed !== null
-                    ? formatSpeedRate((downloadSpeed * 1_000_000) / 8)
-                    : '0 B/s'}
+                      ? formatSpeedRate((downloadSpeed * 1_000_000) / 8)
+                      : '0 B/s'}
                 </Text>
               </View>
               <View style={[styles.activityStat, styles.liveBadge]}>
@@ -363,9 +425,10 @@ export default function NetworkScreen() {
                   {liveRates.txBytesPerSec > 0
                     ? formatSpeedRate(liveRates.txBytesPerSec)
                     : uploadSpeed !== null
-                    ? formatSpeedRate((uploadSpeed * 1_000_000) / 8)
-                    : '0 B/s'}
+                      ? formatSpeedRate((uploadSpeed * 1_000_000) / 8)
+                      : '0 B/s'}
                 </Text>
+                <MaterialIcons name="arrow-upward" size={14} color={Colors.primary} />
                 <MaterialIcons name="pause-circle-outline" size={16} color={Colors.onSurfaceVariant} />
               </View>
             </View>
@@ -387,7 +450,7 @@ export default function NetworkScreen() {
       </View>
 
       {/* ── Speed Test Card ──────────────────────────────── */}
-      {/* <View style={styles.speedTestCard}>
+      { /* <View style={styles.speedTestCard}>
         <View style={[styles.decorGlow, styles.decorGlowTopRight]} />
         <View style={[styles.decorGlow, styles.decorGlowBottomLeft]} />
 
@@ -409,7 +472,7 @@ export default function NetworkScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </View> */}
+      < /View> */}
 
       {/* ── Network Quality Card ─────────────────────────── */}
       {/* <DataCard title="Network Quality" icon="network-check" glass>
@@ -470,7 +533,7 @@ export default function NetworkScreen() {
                   <MaterialIcons name="send" size={12} color={Colors.primary} />
                   <Text style={[gs.labelCaps, { color: Colors.outline }]}>Sent</Text>
                 </View>
-                <Text style={gs.headlineMd}>{dataUsage.sentRequests.toLocaleString()}</Text>
+                <Text style={gs.headlineMd}>{formatCompact(dataUsage.sentRequests)}</Text>
               </View>
 
               <View style={styles.requestMetricItem}>
@@ -480,7 +543,7 @@ export default function NetworkScreen() {
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
                   <Text style={[gs.headlineMd, { color: dataUsage.lostRequests > 0 ? Colors.error : Colors.onSurface }]}>
-                    {dataUsage.lostRequests.toLocaleString()}
+                    {formatCompact(dataUsage.lostRequests)}
                   </Text>
                   <Text style={[gs.labelCaps, { color: dataUsage.lostRequests > 0 ? Colors.error : Colors.tertiary, fontSize: 10 }]}>
                     ({dataUsage.lossRate}%)
@@ -539,6 +602,26 @@ export default function NetworkScreen() {
             {formatBytes(dataUsage.totalSentBytes + dataUsage.totalReceivedBytes)}
           </Text>
         </View>
+
+        {/* Phone Storage Usage Row */}
+        {/* <View style={[styles.dataVolumeRow, { marginTop: 8 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <MaterialIcons name="storage" size={14} color={Colors.outline} />
+            <Text style={[gs.labelCaps, { color: Colors.outline }]}>Phone Storage Usage</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[gs.codeSm, { color: Colors.tertiary, fontWeight: '700' }]}>
+              {formatBytesToMB(storageSize)}
+            </Text>
+            <TouchableOpacity
+              onPress={handleClearAppData}
+              activeOpacity={0.7}
+              style={styles.inlineClearButton}
+            >
+              <Text style={styles.inlineClearButtonText}>CLEAR</Text>
+            </TouchableOpacity>
+          </View>
+        </View> */}
       </DataCard>
     </ScrollView>
   );
@@ -786,5 +869,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: Colors.outlineVariant,
+  },
+  inlineClearButton: {
+    backgroundColor: 'rgba(255, 180, 171, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.error,
+  },
+  inlineClearButtonText: {
+    color: Colors.error,
+    fontFamily: FontFamily.jetbrainsMono,
+    fontSize: 9,
+    fontWeight: '700',
   },
 });

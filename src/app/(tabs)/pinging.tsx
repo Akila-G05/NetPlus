@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { InterstitialAd, AdEventType, TestIds } from '@/services/MobileAdsService';
 
 // ── SimpleSelect dropdown modal helper ───────────────────
 interface SimpleSelectProps {
@@ -173,6 +174,16 @@ const EMPTY_STATS: PingStats = {
   fail: 0,
 };
 
+const COOLDOWN_MS = 3 * 60 * 1000;
+// const COOLDOWN_MS = 1000;  //testing
+
+const AD_LOAD_ON_OPEN = false;   // load ad when app opens
+const AD_LOAD_ON_START = false;  // load ad when user taps START
+const AD_LOAD_ON_END = true;    // load ad when user taps STOP (after showing)
+
+const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-5784306310827332/4228784926';
+const interstitial = InterstitialAd.createForAdRequest(adUnitId);
+
 function resolveHost(targetConnection: string, customHost: string): string {
   return targetConnection === 'Custom Host / IP'
     ? customHost.trim()
@@ -233,6 +244,8 @@ export default function PingingScreen() {
 
   const sessionRef = useRef<PingSession>({ active: false });
   const latenciesRef = useRef<number[]>([]);
+  const adLoaded = useRef(false);
+  const lastAdShowTime = useRef(0);
 
   // Load saved settings on first open (falls back to defaults)
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -269,11 +282,59 @@ export default function PingingScreen() {
     ).catch(() => {});
   }, [configLoaded, targetConnection, customHost, pingInterval]);
 
+  // Ad event listeners
+  useEffect(() => {
+    console.log('[AdMob] Registering interstitial ad event listeners...');
+    const subs = [
+      interstitial.addAdEventListener(AdEventType.LOADED, () => {
+        console.log('[AdMob] Interstitial ad loaded successfully.');
+        adLoaded.current = true;
+      }),
+      interstitial.addAdEventListener(AdEventType.CLOSED, () => {
+        console.log('[AdMob] Interstitial ad was closed.');
+        adLoaded.current = false;
+        if (AD_LOAD_ON_END) {
+          console.log('[AdMob] Preloading next interstitial ad...');
+          interstitial.load();
+        }
+      }),
+      interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
+        console.error('[AdMob] Interstitial ad failed to load:', error);
+        adLoaded.current = false;
+      }),
+    ];
+    if (AD_LOAD_ON_OPEN) {
+      console.log('[AdMob] Loading interstitial ad...');
+      interstitial.load();
+    }
+    return () => {
+      console.log('[AdMob] Unregistering interstitial ad event listeners...');
+      subs.forEach((s) => s());
+    };
+  }, []);
+
   const stopPing = useCallback(() => {
     sessionRef.current.active = false;
     if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
     setIsPinging(false);
     dataUsageTracker.setPingingActive(false);
+
+    const now = Date.now();
+    if (adLoaded.current && now - lastAdShowTime.current >= COOLDOWN_MS) {
+      console.log('[AdMob] Conditions met. Showing interstitial ad.');
+      interstitial.show();
+      lastAdShowTime.current = now;
+    } else {
+      console.log(
+        `[AdMob] Interstitial ad not shown. adLoaded: ${adLoaded.current}, cooldown remaining: ${Math.max(
+          0,
+          COOLDOWN_MS - (now - lastAdShowTime.current)
+        )}ms`
+      );
+    }
+    if (AD_LOAD_ON_END) {
+      interstitial.load();
+    }
   }, []);
 
   useEffect(() => () => stopPing(), [stopPing]);
@@ -293,6 +354,9 @@ export default function PingingScreen() {
     setCurrentLatency(null);
     setStats(EMPTY_STATS);
     setIsPinging(true);
+    if (AD_LOAD_ON_START) {
+      interstitial.load();
+    }
 
     const session: PingSession = { active: true };
     sessionRef.current = session;
@@ -374,11 +438,8 @@ export default function PingingScreen() {
         <View style={styles.destinationRow}>
           <TouchableOpacity
             style={styles.destinationWrap}
-            disabled={true}
-            onPress={() => {
-              console.log("Pressed");
-            }}
             activeOpacity={0.7}
+            onPress={() => setConfigModalVisible(true)}
           >
             <Text style={[gs.labelCaps, styles.destinationLabel]}>Destination</Text>
             <View style={gs.chip}>

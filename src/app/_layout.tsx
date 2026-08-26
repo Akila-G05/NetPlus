@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { Slot } from 'expo-router';
 import '@/services/BackgroundTaskService';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
+import { MobileAds } from '@/services/MobileAdsService';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
@@ -31,6 +32,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     dataUsageTracker.init();
+    MobileAds().initialize();
   }, []);
 
   useEffect(() => {

@@ -1,0 +1,9 @@
+{
+  "name": "netplus-ping",
+  "version": "0.1.0",
+  "description": "Native ICMP ping module for NetPlus",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "homepage": "https://github.com/anonymous/netplus",
+  "license": "MIT"
+}

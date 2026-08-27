@@ -1,3 +1,4 @@
+import { ping as nativeIcmpPing } from 'netplus-ping';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
 import SettingsRow from '@/components/SettingsRow';
@@ -113,12 +114,22 @@ function usePulse() {
 // ── Ping helpers ─────────────────────────────────────────
 const TARGET_HOSTS: Record<string, string> = {
   'Google DNS': '8.8.8.8',
-  // Sri Lankan ISPs
-  'Hutch': 'www.hutch.lk', // IP: 203.189.190.0
-  'Dialog': 'www.dialog.lk', // IP: 175.157.240.1
-  'Mobitel / SLT': 'www.mobitel.lk', // IP: 192.248.1.162
-  'Airtel': 'www.airtel.lk', // Managed under Dialog Network
+  'Hutch': 'hutch.lk',
+  'Dialog': 'dialog.lk',
+  'Mobitel / SLT': 'mobitel.lk',
+  'Airtel': 'airtel.lk',
 };
+
+function sanitizeHost(input: string): string {
+  if (!input) return '';
+  let host = input.trim();
+  host = host.replace(/^https?:\/\//i, '');
+  host = host.split('/')[0];
+  if (!host.startsWith('[')) {
+    host = host.split(':')[0];
+  }
+  return host;
+}
 
 interface PingSession {
   active: boolean;
@@ -140,8 +151,10 @@ interface PingStats {
 const MAX_PING_MS = 5000;
 
 const PING_CONFIG_KEY = '@netplus/ping-config';
+const PING_METHOD_KEY = '@netplus/ping-method';
 const DEFAULT_TARGET = 'Google DNS';
 const DEFAULT_INTERVAL = '5000 ms (5s)';
+const DEFAULT_PING_METHOD: PingMethod = 'icmp';
 
 const targetOptions = [
   'Google DNS',
@@ -185,9 +198,10 @@ const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-5784306310827332/4
 const interstitial = InterstitialAd.createForAdRequest(adUnitId);
 
 function resolveHost(targetConnection: string, customHost: string): string {
-  return targetConnection === 'Custom Host / IP'
-    ? customHost.trim()
-    : TARGET_HOSTS[targetConnection] ?? '8.8.8.8';
+  if (targetConnection === 'Custom Host / IP') {
+    return sanitizeHost(customHost);
+  }
+  return sanitizeHost(TARGET_HOSTS[targetConnection] ?? '8.8.8.8');
 }
 
 function parseIntervalMs(option: string): number {
@@ -195,37 +209,64 @@ function parseIntervalMs(option: string): number {
   return match ? Number(match[0]) : 1000;
 }
 
-// ICMP is not exposed to JS in Expo, so latency is measured with an
-// HTTP round-trip (HEAD request) against the selected host.
-async function pingHost(host: string, timeoutMs: number): Promise<number | null> {
-  if (!host) return null;
+// Ping method types
+type PingMethod = 'icmp' | 'http';
+
+// ICMP ping via native NetPlusPing module (spawns the OS `ping` binary).
+async function nativePing(host: string, timeoutMs: number): Promise<number | null> {
+  const cleanHost = sanitizeHost(host);
+  if (!cleanHost) return null;
+
+  try {
+    return await nativeIcmpPing(cleanHost, timeoutMs);
+  } catch (err: any) {
+    console.log(`[ICMP] Native ping exception: ${err?.message || err}`);
+    return null;
+  }
+}
+
+// Latency is measured with an HTTP round-trip (HEAD request) against the selected host.
+async function httpPing(host: string, timeoutMs: number): Promise<number | null> {
+  const cleanHost = sanitizeHost(host);
+  if (!cleanHost) return null;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = performance.now();
 
   try {
-    await fetch(`https://${host}/`, {
+    await fetch(`https://${cleanHost}/`, {
       method: 'HEAD',
       cache: 'no-store',
       signal: controller.signal,
     });
     return performance.now() - startedAt;
   } catch {
-    // Some hosts (e.g. local gateways) only answer over plain HTTP
     try {
-      await fetch(`http://${host}/`, {
+      await fetch(`http://${cleanHost}/`, {
         method: 'HEAD',
         cache: 'no-store',
         signal: controller.signal,
       });
       return performance.now() - startedAt;
     } catch {
-      return null; // timed out / unreachable
+      return null;
     }
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Dispatch to ICMP (native `ping` binary with HTTP fallback) or HTTP method.
+async function pingHost(host: string, timeoutMs: number, method: PingMethod): Promise<number | null> {
+  if (!host) return null;
+  if (method === 'icmp') {
+    const icmpMs = await nativePing(host, timeoutMs);
+    if (icmpMs !== null) return icmpMs;
+    // Fallback to httpPing if native module unavailable (e.g. Expo Go)
+    return httpPing(host, timeoutMs);
+  }
+  return httpPing(host, timeoutMs);
 }
 
 export default function PingingScreen() {
@@ -236,6 +277,7 @@ export default function PingingScreen() {
   const [targetConnection, setTargetConnection] = useState(DEFAULT_TARGET);
   const [customHost, setCustomHost] = useState('');
   const [pingInterval, setPingInterval] = useState(DEFAULT_INTERVAL);
+  const [pingMethod, setPingMethod] = useState<PingMethod>(DEFAULT_PING_METHOD);
 
   // Live ping state
   const [isPinging, setIsPinging] = useState(false);
@@ -270,6 +312,13 @@ export default function PingingScreen() {
         }
       })
       .catch(() => {})
+      .then(() => AsyncStorage.getItem(PING_METHOD_KEY))
+      .then((method) => {
+        if (method === 'icmp' || method === 'http') {
+          setPingMethod(method as PingMethod);
+        }
+      })
+      .catch(() => {})
       .finally(() => setConfigLoaded(true));
   }, []);
 
@@ -280,7 +329,8 @@ export default function PingingScreen() {
       PING_CONFIG_KEY,
       JSON.stringify({ targetConnection, customHost, pingInterval })
     ).catch(() => {});
-  }, [configLoaded, targetConnection, customHost, pingInterval]);
+    AsyncStorage.setItem(PING_METHOD_KEY, pingMethod).catch(() => {});
+  }, [configLoaded, targetConnection, customHost, pingInterval, pingMethod]);
 
   // Ad event listeners
   useEffect(() => {
@@ -320,10 +370,22 @@ export default function PingingScreen() {
     dataUsageTracker.setPingingActive(false);
 
     const now = Date.now();
-    if (adLoaded.current && now - lastAdShowTime.current >= COOLDOWN_MS) {
+    const isActuallyReady =
+      adLoaded.current &&
+      typeof (interstitial as any).getIsLoaded?.() === 'boolean'
+        ? (interstitial as any).getIsLoaded()
+        : adLoaded.current;
+
+    if (isActuallyReady && now - lastAdShowTime.current >= COOLDOWN_MS) {
       console.log('[AdMob] Conditions met. Showing interstitial ad.');
-      interstitial.show();
-      lastAdShowTime.current = now;
+      adLoaded.current = false;
+      try {
+        interstitial.show();
+        lastAdShowTime.current = now;
+      } catch (e: any) {
+        console.warn('[AdMob] show() threw, reloading ad:', e?.message);
+        interstitial.load();
+      }
     } else {
       console.log(
         `[AdMob] Interstitial ad not shown. adLoaded: ${adLoaded.current}, cooldown remaining: ${Math.max(
@@ -364,9 +426,10 @@ export default function PingingScreen() {
     const tick = async () => {
       if (!session.active) return;
 
-      const latencyRaw = await pingHost(host, requestTimeoutMs);
+      const latencyRaw = await pingHost(host, requestTimeoutMs, pingMethod);
       const latency =
         latencyRaw !== null ? Math.min(Math.round(latencyRaw), MAX_PING_MS) : null;
+      console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
       if (!session.active) return; // stopped while in flight
 
       dataUsageTracker.recordPingResult(latency !== null);
@@ -418,7 +481,7 @@ export default function PingingScreen() {
     };
 
     tick();
-  }, [targetConnection, customHost, pingInterval, stopPing]);
+  }, [targetConnection, customHost, pingInterval, pingMethod, stopPing]);
 
   return (
     <ScrollView
@@ -449,7 +512,16 @@ export default function PingingScreen() {
                   ? customHost
                   : targetConnection}
               </Text>
-              {/* <MaterialIcons name="edit" size={14} color={Colors.onSurfaceVariant} style={{ marginLeft: 4 }} /> */}
+              <View style={[styles.methodBadge, { backgroundColor: pingMethod === 'icmp' ? 'rgba(120,220,119,0.15)' : 'rgba(255,167,38,0.15)' }]}>
+                <MaterialIcons
+                  name={pingMethod === 'icmp' ? 'network-check' : 'language'}
+                  size={10}
+                  color={pingMethod === 'icmp' ? Colors.tertiary : Colors.warning}
+                />
+                <Text style={[styles.methodBadgeText, { color: pingMethod === 'icmp' ? Colors.tertiary : Colors.warning }]}>
+                  {pingMethod === 'icmp' ? 'ICMP' : 'HTTP'}
+                </Text>
+              </View>
             </View>
           </TouchableOpacity>
 
@@ -718,6 +790,14 @@ export default function PingingScreen() {
                 />
               </SettingsRow>
 
+              <SettingsRow label="Ping Method" bordered>
+                <SimpleSelect
+                  options={['ICMP (Recommended)', 'HTTP']}
+                  selectedOption={pingMethod === 'icmp' ? 'ICMP (Recommended)' : 'HTTP'}
+                  onSelect={(opt) => setPingMethod(opt === 'ICMP (Recommended)' ? 'icmp' : 'http')}
+                />
+              </SettingsRow>
+
               <TouchableOpacity
                 style={[gs.btnPrimary, { marginTop: 16 }]}
                 onPress={() => {
@@ -770,6 +850,19 @@ const styles = StyleSheet.create({
   },
   destinationLabel: {
     marginBottom: 8,
+  },
+  methodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  methodBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
   },
 
   // ── Pulse value area / Big Circle Button ──────────────

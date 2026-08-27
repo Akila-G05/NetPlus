@@ -1,6 +1,6 @@
 /**
- * Tabs Layout — Bottom tab navigator with 5 tabs.
- * Order: Pinging → Injector → SpeedTest → Network → Settings
+ * Tabs Layout — Bottom tab navigator with 5 main tabs + sub-screens inside (tabs).
+ * Order: Pinging → Injector → SpeedTest → Network → Tools
  */
 import React, { useEffect, useState, memo } from 'react';
 import { Tabs } from 'expo-router';
@@ -21,7 +21,7 @@ const HeaderTitle = memo(function HeaderTitle() {
   );
 });
 
-// Memoized Header Connection Status component — isolates NetInfo updates
+// Memoized Header Connection Status component
 const HeaderConnectionStatus = memo(function HeaderConnectionStatus() {
   const [netState, setNetState] = useState<NetInfoState | null>(null);
 
@@ -171,14 +171,23 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* ── Settings ───────────────────────────────────── */}
+      {/* ── Tools ──────────────────────────────────────── */}
+      <Tabs.Screen
+        name="tools"
+        options={{
+          title: 'Tools',
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon name="build" color={color} focused={focused} />
+          ),
+        }}
+      />
+
+      {/* ── Settings Sub-Screen (Keeps Tab Bar visible) ── */}
       <Tabs.Screen
         name="settings"
         options={{
+          href: null,
           title: 'Settings',
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name="settings" color={color} focused={focused} />
-          ),
         }}
       />
 

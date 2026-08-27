@@ -1,8 +1,10 @@
 /**
- * Settings Tab — Application preferences, privacy, system diagnostics, and about info.
- * Includes Solarfox developer details, feature descriptions, Privacy Policy, App Rating & Reset.
+ * Settings Screen — App preferences, data units, privacy policies, app rating, reset & credits.
+ * Located inside (tabs) so bottom navigation bar remains visible.
+ * Accessible from Tools -> Settings & Preferences.
+ * Developed by Solarfox.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -18,16 +20,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
 import SettingsRow, { SettingsToggle } from '@/components/SettingsRow';
-import {
-  registerBackgroundPingAsync,
-  unregisterBackgroundPingAsync,
-  isBackgroundPingRegisteredAsync,
-  getBackgroundLogsAsync,
-  clearBackgroundLogsAsync,
-  type BackgroundLogEntry,
-} from '@/services/BackgroundTaskService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
+import { useRouter } from 'expo-router';
 
 interface SimpleSelectProps {
   options: string[];
@@ -97,17 +92,16 @@ function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) 
 }
 
 export default function SettingsScreen() {
-  // General State — kept for when Theme/Language/Notifications UI is re-enabled
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const router = useRouter();
+
+  // General Preferences State
   const [_theme, _setTheme] = useState('Dark Mode');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_language, _setLanguage] = useState('English (US)');
   const [dataUnits, setDataUnits] = useState('Mbps');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_notifications, _setNotifications] = useState(true);
   const [autoSaveLogs, setAutoSaveLogs] = useState(true);
 
-  // Modals state
+  // Modals State
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   const [rateModalVisible, setRateModalVisible] = useState(false);
   const [resetModalVisible, setResetModalVisible] = useState(false);
@@ -117,55 +111,6 @@ export default function SettingsScreen() {
   const [rating, setRating] = useState(5);
   const [ratingFeedback, setRatingFeedback] = useState('');
   const [ratedSubmitted, setRatedSubmitted] = useState(false);
-
-  // Background Pinging State
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [bgPingEnabled, setBgPingEnabled] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [bgInterval, setBgInterval] = useState('15 Minutes');
-  const [bgLogsModalVisible, setBgLogsModalVisible] = useState(false);
-  const [bgLogs, setBgLogs] = useState<BackgroundLogEntry[]>([]);
-
-  useEffect(() => {
-    isBackgroundPingRegisteredAsync().then(setBgPingEnabled);
-  }, []);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleToggleBgPing = async (val: boolean) => {
-    setBgPingEnabled(val);
-    if (val) {
-      const intervalNum = parseInt(bgInterval, 10) || 15;
-      const success = await registerBackgroundPingAsync(intervalNum);
-      if (success) {
-        Alert.alert(
-          'Background Monitoring Active',
-          `NetPulse will monitor network status & latency in the background every ${intervalNum} minutes.`
-        );
-      } else {
-        setBgPingEnabled(false);
-        Alert.alert('Error', 'Could not register background monitoring task.');
-      }
-    } else {
-      await unregisterBackgroundPingAsync();
-      Alert.alert(
-        'Background Monitoring Stopped',
-        'Periodic background ping monitoring is disabled.'
-      );
-    }
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleOpenBgLogs = async () => {
-    const logs = await getBackgroundLogsAsync();
-    setBgLogs(logs);
-    setBgLogsModalVisible(true);
-  };
-
-  const handleClearBgLogs = async () => {
-    await clearBackgroundLogsAsync();
-    setBgLogs([]);
-    Alert.alert('Logs Cleared', 'Background diagnostic logs have been reset.');
-  };
 
   // App Reset Handler
   const handleResetApp = async () => {
@@ -207,12 +152,21 @@ export default function SettingsScreen() {
       contentContainerStyle={[gs.scrollContent, { paddingBottom: 40 }]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Page Header */}
+      {/* Page Header with Back Navigation */}
       <View style={styles.pageHeader}>
-        <Text style={gs.headlineLg}>Settings</Text>
-        <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 4 }]}>
-          Preferences, privacy policy, and application diagnostic overview.
-        </Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="arrow-back" size={22} color={Colors.onSurface} />
+        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={gs.headlineLg}>Settings & Preferences</Text>
+          {/* <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
+            Application preferences, privacy policy, and system options.
+          </Text> */}
+        </View>
       </View>
 
       {/* ── GENERAL PREFERENCES CARD ─────────────────────── */}
@@ -222,22 +176,6 @@ export default function SettingsScreen() {
           <Text style={styles.cardTitle}>GENERAL PREFERENCES</Text>
         </View>
 
-        {/* <SettingsRow label="Theme">
-          <SimpleSelect
-            options={['Dark Mode', 'Light Mode', 'System Default']}
-            selectedOption={theme}
-            onSelect={setTheme}
-          />
-        </SettingsRow>
-
-        <SettingsRow label="Language" bordered>
-          <SimpleSelect
-            options={['English (US)', 'Sinhala', 'Spanish', 'French']}
-            selectedOption={language}
-            onSelect={setLanguage}
-          />
-        </SettingsRow> */}
-
         <SettingsRow label="Data Units" bordered>
           <SimpleSelect
             options={['Mbps', 'MB/s', 'Kbps']}
@@ -245,13 +183,6 @@ export default function SettingsScreen() {
             onSelect={setDataUnits}
           />
         </SettingsRow>
-
-        {/* <SettingsToggle
-          label="Push Notifications"
-          value={notifications}
-          onValueChange={setNotifications}
-          bordered
-        /> */}
 
         <SettingsToggle
           label="Auto-Save Test Logs"
@@ -261,7 +192,7 @@ export default function SettingsScreen() {
         />
       </View>
 
-      {/* ── PRIVACY & UTILITIES CARD ──────────────────────── */}
+      {/* ── PRIVACY & APP ACTIONS CARD ────────────────────── */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <MaterialIcons name="admin-panel-settings" size={20} color={Colors.primary} />
@@ -337,7 +268,7 @@ export default function SettingsScreen() {
               <Text style={styles.moduleTitle}>Pinging</Text>
             </View>
             <Text style={styles.moduleDesc}>
-              Measures real-time network latency, jitter, and packet loss against Sri Lankan ISP servers (Dialog, Hutch, Mobitel/SLT, Airtel) and global DNS endpoints to evaluate instant response times.
+              Measures real-time network latency, jitter, and packet loss against Sri Lankan ISP servers (Dialog, Hutch, Mobitel/SLT, Airtel) and global DNS endpoints.
             </Text>
           </View>
 
@@ -348,18 +279,18 @@ export default function SettingsScreen() {
               <Text style={styles.moduleTitle}>Speed Test</Text>
             </View>
             <Text style={styles.moduleDesc}>
-              Evaluates live download & upload bandwidth, throughput stability, and latency under network load with real-time gauge meters and detailed stats graphs.
+              Evaluates live download & upload bandwidth, throughput stability, and latency under load with real-time gauges.
             </Text>
           </View>
 
-          {/* Tunneling Description */}
+          {/* Tools Description */}
           <View style={[styles.moduleItem, styles.moduleBorder]}>
             <View style={styles.moduleHeader}>
-              <MaterialIcons name="vpn-key" size={18} color={Colors.tertiary} />
-              <Text style={styles.moduleTitle}>Tunneling & Proxy</Text>
+              <MaterialIcons name="build" size={18} color={Colors.tertiary} />
+              <Text style={styles.moduleTitle}>Tools & Geolocation</Text>
             </View>
             <Text style={styles.moduleDesc}>
-              Provides encrypted packet routing, proxy metrics, interface state monitoring, and secure tunnel diagnostics for advanced network routing and privacy inspection.
+              Provides IP tracking, carrier lookup, diagnostic logs, and upcoming network analysis suites designed by Solarfox.
             </Text>
           </View>
         </View>
@@ -390,7 +321,7 @@ export default function SettingsScreen() {
           <Text style={styles.proTitle}>NETPULSE PRO</Text>
         </View>
         <Text style={[gs.bodyMd, { color: Colors.onSurface, marginVertical: 12 }]}>
-          Unlock advanced route tracing, continuous ping logs, and custom proxy protocol tools.
+          Unlock advanced route tracing, continuous background ping logs, and custom proxy protocol tools.
         </Text>
         <TouchableOpacity
           style={gs.btnPrimary}
@@ -428,12 +359,12 @@ export default function SettingsScreen() {
 
               <Text style={styles.policyHeading}>2. Local Diagnostic Logs</Text>
               <Text style={styles.policyText}>
-                All ping statistics, latency samples, speed test measurements, and tunneling logs generated during diagnostic sessions are stored exclusively in your local device memory and are purged upon app reset.
+                All ping statistics, latency samples, speed test measurements, and tools logs generated during diagnostic sessions are stored exclusively in your local device memory and are purged upon app reset.
               </Text>
 
-              <Text style={styles.policyHeading}>3. Network Requests & ICMP/HTTP Pings</Text>
+              <Text style={styles.policyHeading}>3. Network Requests & Diagnostic Probes</Text>
               <Text style={styles.policyText}>
-                Ping and speed tests perform standard lightweight HTTP/HEAD requests directly against selected target hosts (such as Sri Lankan ISP gateways or public DNS servers) solely to measure round-trip time and bandwidth.
+                Diagnostic probes perform standard lightweight HTTP/HEAD requests directly against selected target hosts solely to measure round-trip time, bandwidth, and IP info.
               </Text>
 
               <Text style={styles.policyHeading}>4. Developer Commitment</Text>
@@ -467,7 +398,6 @@ export default function SettingsScreen() {
               Tap a star to rate your experience with NetPulse by Solarfox.
             </Text>
 
-            {/* Star Rating Buttons */}
             <View style={styles.starRow}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <TouchableOpacity
@@ -484,7 +414,6 @@ export default function SettingsScreen() {
               ))}
             </View>
 
-            {/* Optional feedback text */}
             <TextInput
               style={styles.ratingInput}
               placeholder="Leave feedback for Solarfox (optional)..."
@@ -569,7 +498,7 @@ export default function SettingsScreen() {
             <ScrollView style={styles.modalBodyScroll} showsVerticalScrollIndicator={false}>
               <Text style={styles.policyHeading}>1. Terms of Use</Text>
               <Text style={styles.policyText}>
-                By using NetPulse, you agree to utilize the diagnostic tools (Pinging, Speed Test, and Tunneling) strictly for lawful network assessment and performance monitoring.
+                By using NetPulse, you agree to utilize the diagnostic tools (Pinging, Speed Test, and Tools) strictly for lawful network assessment and performance monitoring.
               </Text>
 
               <Text style={styles.policyHeading}>2. Fair Use & Diagnostic Limits</Text>
@@ -579,7 +508,7 @@ export default function SettingsScreen() {
 
               <Text style={styles.policyHeading}>3. Disclaimer of Warranty</Text>
               <Text style={styles.policyText}>
-                NetPulse is provided {`"as is"`} by Solarfox without warranty of any kind. Latency and bandwidth readings reflect real-time conditions and may vary based on carrier routing and local signal strength.
+                NetPulse is provided {`"as is"`} by Solarfox without warranty of any kind. Diagnostic readings reflect real-time conditions and may vary based on carrier routing and local signal strength.
               </Text>
 
               <Text style={styles.policyHeading}>4. Credits</Text>
@@ -597,112 +526,26 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
-
-      {/* ── BACKGROUND DIAGNOSTIC LOGS MODAL ───────────────── */}
-      <Modal
-        visible={bgLogsModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setBgLogsModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-            <View style={styles.cardHeader}>
-              <MaterialIcons name="history" size={22} color={Colors.primary} />
-              <Text style={styles.modalTitle}>Background Diagnostic Logs</Text>
-            </View>
-
-            {bgLogs.length === 0 ? (
-              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                <MaterialIcons name="event-note" size={40} color={Colors.outline} />
-                <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 8 }]}>
-                  No background logs recorded yet.
-                </Text>
-              </View>
-            ) : (
-              <FlatList
-                data={bgLogs}
-                keyExtractor={(item) => item.id}
-                contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
-                renderItem={({ item }) => (
-                  <View
-                    style={{
-                      backgroundColor: Colors.surfaceContainerHigh,
-                      borderRadius: BorderRadius.default,
-                      padding: 10,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <View>
-                      <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
-                        {item.timestamp} • {item.host}
-                      </Text>
-                      <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
-                        {item.networkType} • {item.latencyMs} ms
-                      </Text>
-                    </View>
-                    <View
-                      style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 4,
-                        backgroundColor:
-                          item.status === 'SUCCESS'
-                            ? 'rgba(120, 220, 119, 0.15)'
-                            : item.status === 'HIGH_LATENCY'
-                            ? 'rgba(255, 167, 38, 0.15)'
-                            : 'rgba(255, 180, 171, 0.15)',
-                      }}
-                    >
-                      <Text
-                        style={[
-                          gs.labelCaps,
-                          {
-                            color:
-                              item.status === 'SUCCESS'
-                                ? Colors.tertiary
-                                : item.status === 'HIGH_LATENCY'
-                                ? Colors.warning
-                                : Colors.error,
-                            fontSize: 10,
-                          },
-                        ]}
-                      >
-                        {item.status}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              />
-            )}
-
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
-              <TouchableOpacity
-                style={[gs.btnSecondary, { flex: 1 }]}
-                onPress={handleClearBgLogs}
-              >
-                <Text style={gs.btnSecondaryText}>Clear Logs</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1 }]}
-                onPress={() => setBgLogsModalVisible(false)}
-              >
-                <Text style={gs.btnPrimaryText}>Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   pageHeader: {
-    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   card: {
     backgroundColor: Colors.surfaceContainer,
@@ -710,65 +553,59 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.outlineVariant,
     padding: Spacing.containerPadding,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.outlineVariant,
-    paddingBottom: 10,
-    marginBottom: 8,
+    marginBottom: Spacing.elementGap,
   },
   cardTitle: {
     ...Typography.labelCaps,
-    color: Colors.onSurface,
-    letterSpacing: 1,
+    color: Colors.primary,
   },
-
-  // Select Trigger
   selectTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceContainerHigh,
+    backgroundColor: Colors.surfaceContainerLow,
     borderWidth: 1,
     borderColor: Colors.outlineVariant,
     borderRadius: BorderRadius.sm,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 4,
   },
   selectTriggerText: {
-    ...Typography.codeSm,
+    ...Typography.bodyMd,
     color: Colors.onSurface,
+    fontSize: 13,
   },
-
-  // Action Rows
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
   },
-  rowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.outlineVariant,
-  },
   actionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
   },
   actionText: {
     ...Typography.bodyMd,
     color: Colors.onSurface,
     fontWeight: '500',
   },
+  rowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.outlineVariant,
+  },
 
-  // About Module Descriptions
+  // About Section & Credits
   aboutModuleBox: {
-    marginVertical: 4,
+    marginBottom: 16,
   },
   moduleItem: {
     paddingVertical: 10,
@@ -785,24 +622,21 @@ const styles = StyleSheet.create({
   },
   moduleTitle: {
     ...Typography.bodyMd,
-    fontWeight: '700',
+    fontWeight: '600',
     color: Colors.onSurface,
   },
   moduleDesc: {
     ...Typography.bodyMd,
-    fontSize: 13,
+    fontSize: 12,
     lineHeight: 18,
     color: Colors.onSurfaceVariant,
   },
-
-  // Credit & Version Card
   creditCard: {
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
     borderColor: Colors.outlineVariant,
     padding: 12,
-    marginTop: 12,
   },
   creditRow: {
     flexDirection: 'row',
@@ -813,7 +647,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255, 167, 38, 0.15)',
+    backgroundColor: 'rgba(255, 167, 38, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: BorderRadius.sm,
@@ -822,13 +656,12 @@ const styles = StyleSheet.create({
     ...Typography.labelCaps,
     fontSize: 11,
     color: Colors.warning,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   developedByLabel: {
     ...Typography.bodyMd,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.onSurface,
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
   },
   versionDivider: {
     height: 1,
@@ -836,16 +669,16 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   versionLabel: {
-    ...Typography.codeSm,
+    ...Typography.bodyMd,
+    fontSize: 12,
     color: Colors.onSurfaceVariant,
   },
   versionValue: {
     ...Typography.codeSm,
-    fontWeight: '700',
-    color: Colors.primary,
+    color: Colors.onSurface,
   },
 
-  // Pro Card
+  // Pro Banner
   proCard: {
     backgroundColor: Colors.surfaceContainerHigh,
     borderColor: Colors.outlineVariant,
@@ -940,7 +773,7 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
   },
 
-  // Dialogs (Rate App & App Reset)
+  // Dialogs
   dialogContent: {
     width: '90%',
     backgroundColor: Colors.surfaceContainerHigh,

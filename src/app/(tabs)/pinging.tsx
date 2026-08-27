@@ -113,9 +113,11 @@ function usePulse() {
 
 // ── Ping helpers ─────────────────────────────────────────
 const TARGET_HOSTS: Record<string, string> = {
+  'Google': '8.8.8.8',
   'Google DNS': '8.8.8.8',
   'Hutch': 'hutch.lk',
   'Dialog': 'dialog.lk',
+  'Mobitel': 'mobitel.lk',
   'Mobitel / SLT': 'mobitel.lk',
   'Airtel': 'airtel.lk',
 };
@@ -152,16 +154,16 @@ const MAX_PING_MS = 5000;
 
 const PING_CONFIG_KEY = '@netplus/ping-config';
 const PING_METHOD_KEY = '@netplus/ping-method';
-const DEFAULT_TARGET = 'Google DNS';
+const DEFAULT_TARGET = 'Google';
 const DEFAULT_INTERVAL = '5000 ms (5s)';
 const DEFAULT_PING_METHOD: PingMethod = 'icmp';
 
 const targetOptions = [
-  'Google DNS',
+  'Google',
   // Sri Lankan ISPs
   'Hutch',
   'Dialog',
-  'Mobitel / SLT',
+  'Mobitel',
   'Airtel',
   'Custom Host / IP',
 ];
@@ -301,8 +303,11 @@ export default function PingingScreen() {
           customHost?: string;
           pingInterval?: string;
         };
-        if (saved.targetConnection && targetOptions.includes(saved.targetConnection)) {
-          setTargetConnection(saved.targetConnection);
+        let savedTarget = saved.targetConnection;
+        if (savedTarget === 'Google DNS') savedTarget = 'Google';
+        if (savedTarget === 'Mobitel / SLT') savedTarget = 'Mobitel';
+        if (savedTarget && targetOptions.includes(savedTarget)) {
+          setTargetConnection(savedTarget);
         }
         if (typeof saved.customHost === 'string') {
           setCustomHost(saved.customHost);
@@ -508,9 +513,7 @@ export default function PingingScreen() {
             <View style={gs.chip}>
               <MaterialIcons name="public" size={14} color={Colors.primary} />
               <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
-                {targetConnection === 'Custom Host / IP' && customHost
-                  ? customHost
-                  : targetConnection}
+                {targetConnection === 'Custom Host / IP' ? 'Custom' : targetConnection}
               </Text>
               <View style={[styles.methodBadge, { backgroundColor: pingMethod === 'icmp' ? 'rgba(120,220,119,0.15)' : 'rgba(255,167,38,0.15)' }]}>
                 <MaterialIcons

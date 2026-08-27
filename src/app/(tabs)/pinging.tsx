@@ -429,7 +429,7 @@ export default function PingingScreen() {
       const latencyRaw = await pingHost(host, requestTimeoutMs, pingMethod);
       const latency =
         latencyRaw !== null ? Math.min(Math.round(latencyRaw), MAX_PING_MS) : null;
-      console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
+      // console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
       if (!session.active) return; // stopped while in flight
 
       dataUsageTracker.recordPingResult(latency !== null);

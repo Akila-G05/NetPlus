@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Network Utility - Speed Test</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- JetBrains Mono for Code -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<!-- Inter for UI -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-bright": "#333946",
+                        "on-tertiary-container": "#003208",
+                        "surface-container-high": "#232a36",
+                        "error-container": "#93000a",
+                        "primary-fixed": "#d8e2ff",
+                        "outline-variant": "#414755",
+                        "secondary": "#bdf4ff",
+                        "secondary-fixed-dim": "#00daf3",
+                        "on-secondary-fixed-variant": "#004f58",
+                        "on-error": "#690005",
+                        "on-surface-variant": "#c1c6d7",
+                        "surface-variant": "#2e3541",
+                        "tertiary": "#78dc77",
+                        "on-background": "#dce3f2",
+                        "on-error-container": "#ffdad6",
+                        "inverse-surface": "#dce3f2",
+                        "on-primary-fixed": "#001a41",
+                        "tertiary-fixed": "#94f990",
+                        "on-tertiary": "#00390a",
+                        "surface-container-lowest": "#070e19",
+                        "outline": "#8b90a0",
+                        "primary-container": "#4b8eff",
+                        "on-primary-fixed-variant": "#004493",
+                        "on-secondary-fixed": "#001f24",
+                        "surface-container-low": "#151c27",
+                        "secondary-fixed": "#9cf0ff",
+                        "on-primary-container": "#00285c",
+                        "primary": "#adc6ff",
+                        "on-tertiary-fixed-variant": "#005313",
+                        "primary-fixed-dim": "#adc6ff",
+                        "inverse-primary": "#005bc1",
+                        "secondary-container": "#00e3fd",
+                        "on-secondary": "#00363d",
+                        "surface-dim": "#0d141e",
+                        "on-primary": "#002e69",
+                        "surface-container-highest": "#2e3541",
+                        "background": "#0d141e",
+                        "surface-container": "#19202b",
+                        "tertiary-fixed-dim": "#78dc77",
+                        "surface-tint": "#adc6ff",
+                        "on-secondary-container": "#00616d",
+                        "on-surface": "#dce3f2",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#41a447",
+                        "inverse-on-surface": "#2a313c",
+                        "on-tertiary-fixed": "#002204",
+                        "surface": "#0d141e"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "stack-gap": "12px",
+                        "section-margin": "24px",
+                        "container-padding": "16px",
+                        "unit": "4px",
+                        "element-gap": "8px"
+                    },
+                    fontFamily: {
+                        "code-sm": ["JetBrains Mono"],
+                        "code-lg": ["JetBrains Mono"],
+                        "headline-lg": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "code-sm": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+                        "code-lg": ["14px", { lineHeight: "20px", fontWeight: "500" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "label-caps": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "700" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.01em", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill-icon {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        /* Custom glow effects for technical UI */
+        .neon-glow {
+            box-shadow: 0 0 20px rgba(173, 198, 255, 0.15);
+        }
+        
+        .speedometer-gradient {
+            background: conic-gradient(
+                from 210deg at 50% 50%,
+                transparent 0deg,
+                transparent 140deg,
+                rgba(65, 71, 85, 0.5) 140deg,
+                rgba(173, 198, 255, 0.2) 200deg,
+                rgba(0, 227, 253, 0.4) 280deg,
+                transparent 280deg,
+                transparent 360deg
+            );
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen font-body-md antialiased selection:bg-primary-container selection:text-on-primary-container pb-section-margin">
+<!-- Sub-page TopAppBar (Overridden from JSON to fit 'Inner screen with back arrow') -->
+<header class="fixed top-0 w-full z-50 bg-surface border-b border-outline-variant h-16 flex items-center px-container-padding justify-between">
+<div class="flex items-center gap-element-gap">
+<button aria-label="Go back" class="p-2 -ml-2 rounded-full hover:bg-surface-variant transition-colors duration-200 flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md text-primary">Speed Test</h1>
+</div>
+<button aria-label="View history" class="p-2 -mr-2 rounded-full hover:bg-surface-variant transition-colors duration-200 flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">history</span>
+</button>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-24 px-container-padding max-w-2xl mx-auto flex flex-col gap-section-margin">
+<!-- Connection Info Grid (Bento style) -->
+<section class="grid grid-cols-3 gap-element-gap">
+<div class="bg-surface-container rounded-lg border border-outline-variant p-stack-gap flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-2">Network</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-xl">cell_tower</span>
+<span class="font-code-lg text-code-lg text-on-surface">Dialog</span>
+</div>
+<span class="font-code-sm text-code-sm text-primary mt-1">4G LTE</span>
+</div>
+<div class="bg-surface-container rounded-lg border border-outline-variant p-stack-gap flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-2">Public IP</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-xl">public</span>
+<span class="font-code-lg text-code-lg text-on-surface truncate">112.134.XX.XX</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant mt-1">IPv4</span>
+</div>
+<div class="bg-surface-container rounded-lg border border-outline-variant p-stack-gap flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-tertiary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-2">Signal</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary text-xl fill-icon">signal_cellular_4_bar</span>
+<span class="font-code-lg text-code-lg text-on-surface">82%</span>
+</div>
+<div class="w-full bg-surface-variant h-1 mt-2 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full rounded-full" style="width: 82%;"></div>
+</div>
+</div>
+</section>
+<!-- Speedometer Area -->
+<section class="flex flex-col items-center justify-center py-8 relative">
+<!-- Background Decorative Rings -->
+<div class="absolute w-[320px] h-[320px] rounded-full border border-surface-variant opacity-50"></div>
+<div class="absolute w-[280px] h-[280px] rounded-full border border-surface-variant border-dashed opacity-30"></div>
+<!-- Speedometer Dial -->
+<div class="relative w-[240px] h-[240px] rounded-full flex items-center justify-center neon-glow">
+<!-- Scale Marks (CSS trick for radial ticks) -->
+<div class="absolute inset-0 speedometer-gradient rounded-full"></div>
+<!-- Inner Cutout -->
+<div class="absolute inset-4 bg-background rounded-full border border-surface-container flex flex-col items-center justify-center z-10 shadow-[inset_0_4px_24px_rgba(0,0,0,0.5)]">
+<!-- GO Button -->
+<button class="group relative w-32 h-32 rounded-full flex items-center justify-center bg-surface-container hover:bg-surface-container-high border-2 border-primary transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(173,198,255,0.2)] hover:shadow-[0_0_25px_rgba(173,198,255,0.4)]">
+<div class="absolute inset-0 rounded-full bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity blur-md"></div>
+<span class="font-headline-lg text-headline-lg text-primary z-10 tracking-widest pl-1">GO</span>
+</button>
+</div>
+<!-- Scale Labels -->
+<span class="absolute bottom-4 left-6 font-code-sm text-code-sm text-on-surface-variant z-10">0</span>
+<span class="absolute top-4 left-1/2 -translate-x-1/2 font-code-sm text-code-sm text-on-surface-variant z-10">250</span>
+<span class="absolute bottom-4 right-4 font-code-sm text-code-sm text-on-surface-variant z-10">500+</span>
+</div>
+<p class="mt-8 font-body-md text-body-md text-on-surface-variant text-center">Tap to begin the speed test</p>
+</section>
+<!-- Pre-test Results Row (Empty State) -->
+<section class="grid grid-cols-3 gap-element-gap bg-surface-container rounded-lg border border-outline-variant p-4">
+<div class="flex flex-col items-center justify-center text-center border-r border-outline-variant last:border-r-0">
+<div class="flex items-center gap-1 mb-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">compare_arrows</span>
+<span class="font-label-caps text-label-caps uppercase">Ping</span>
+</div>
+<div class="flex items-baseline gap-1">
+<span class="font-code-lg text-code-lg text-on-surface text-xl">--</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">ms</span>
+</div>
+</div>
+<div class="flex flex-col items-center justify-center text-center border-r border-outline-variant last:border-r-0">
+<div class="flex items-center gap-1 mb-1 text-primary">
+<span class="material-symbols-outlined text-[16px]">download</span>
+<span class="font-label-caps text-label-caps uppercase">Download</span>
+</div>
+<div class="flex items-baseline gap-1">
+<span class="font-code-lg text-code-lg text-primary text-xl">--</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">Mbps</span>
+</div>
+</div>
+<div class="flex flex-col items-center justify-center text-center border-r border-outline-variant last:border-r-0">
+<div class="flex items-center gap-1 mb-1 text-secondary-container">
+<span class="material-symbols-outlined text-[16px]">upload</span>
+<span class="font-label-caps text-label-caps uppercase">Upload</span>
+</div>
+<div class="flex items-baseline gap-1">
+<span class="font-code-lg text-code-lg text-secondary-container text-xl">--</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">Mbps</span>
+</div>
+</div>
+</section>
+<!-- Server Selection Card -->
+<section class="bg-surface-container rounded-lg border border-outline-variant p-4 flex items-center justify-between group hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center border border-outline-variant">
+<span class="material-symbols-outlined text-on-surface">dns</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-1">Target Server</span>
+<span class="font-body-md text-body-md font-semibold text-on-surface">SLT-MOBITEL</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">Colombo, LK</span>
+</div>
+</div>
+<button class="px-4 py-2 rounded border border-primary text-primary font-label-caps text-label-caps uppercase hover:bg-primary/10 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50">
+                Change
+            </button>
+</section>
+<!-- Data Usage Notice -->
+<section class="mt-4 flex items-start gap-3 bg-surface-variant/50 p-4 rounded-lg border border-outline-variant/50">
+<span class="material-symbols-outlined text-on-surface-variant mt-0.5 text-xl">info</span>
+<div class="flex flex-col flex-grow">
+<p class="font-body-sm text-code-sm text-on-surface-variant mb-3">This test may use 50-150 MB of data depending on your connection speed.</p>
+<label class="flex items-center gap-2 cursor-pointer group w-fit">
+<div class="relative flex items-center justify-center w-4 h-4">
+<input class="peer appearance-none w-4 h-4 border border-outline-variant rounded-sm bg-surface-container checked:bg-primary checked:border-primary focus:ring-2 focus:ring-primary/30 focus:outline-none transition-colors" type="checkbox"/>
+<span class="material-symbols-outlined absolute text-[12px] text-on-primary pointer-events-none opacity-0 peer-checked:opacity-100">check</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant group-hover:text-on-surface transition-colors select-none">Do not show again</span>
+</label>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Suppressed as per 'No bottom nav' rule for focused task screens -->
+</body></html>

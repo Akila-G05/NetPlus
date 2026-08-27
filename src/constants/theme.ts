@@ -92,19 +92,21 @@ export const LightColors = Colors;
 // ─── Typography ──────────────────────────────────────────
 export const FontFamily = {
   inter: 'Inter',
+  interSemiBold: 'Inter-SemiBold',
+  interBold: 'Inter-Bold',
   jetbrainsMono: 'JetBrainsMono',
 } as const;
 
 export const Typography = {
   headlineLg: {
-    fontFamily: FontFamily.inter,
+    fontFamily: FontFamily.interBold,
     fontSize: 24,
     fontWeight: '700' as const,
     lineHeight: 32,
     letterSpacing: -0.48, // -0.02em
   },
   headlineMd: {
-    fontFamily: FontFamily.inter,
+    fontFamily: FontFamily.interSemiBold,
     fontSize: 20,
     fontWeight: '600' as const,
     lineHeight: 28,
@@ -135,7 +137,7 @@ export const Typography = {
     lineHeight: 16,
   },
   labelCaps: {
-    fontFamily: FontFamily.inter,
+    fontFamily: FontFamily.interBold,
     fontSize: 11,
     fontWeight: '700' as const,
     lineHeight: 16,

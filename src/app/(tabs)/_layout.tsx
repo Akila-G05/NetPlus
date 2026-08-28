@@ -138,11 +138,12 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* ── Injector ───────────────────────────────────── */}
+      {/* ── Injector (hidden from tab bar until enabled) ── */}
       <Tabs.Screen
         name="injector"
         options={{
           title: 'Injector',
+          href: null,
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name="terminal" color={color} focused={focused} />
           ),

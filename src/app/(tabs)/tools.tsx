@@ -163,7 +163,7 @@ export default function ToolsScreen() {
         </TouchableOpacity>
 
         {/* Background Logs */}
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={[styles.actionRow, styles.rowBorder]}
           onPress={handleOpenBgLogs}
           activeOpacity={0.7}
@@ -178,7 +178,7 @@ export default function ToolsScreen() {
             </View>
           </View>
           <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       {/* ── CARD 2: SETTINGS ───────────────────────────── */}
@@ -219,7 +219,7 @@ export default function ToolsScreen() {
 
         <View style={styles.upcomingGrid}>
           {/* Port Scanner */}
-          <View style={styles.upcomingItem}>
+          {/* <View style={styles.upcomingItem}>
             <View style={styles.upcomingHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="radar" size={18} color={Colors.primary} />
@@ -232,10 +232,10 @@ export default function ToolsScreen() {
             <Text style={styles.upcomingDesc}>
               Scan active TCP ports (80, 443, 22, 21, 8080) to detect open services and security exposures.
             </Text>
-          </View>
+          </View> */}
 
           {/* DNS & WHOIS Lookup */}
-          <View style={[styles.upcomingItem, styles.rowBorder]}>
+          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
             <View style={styles.upcomingHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="dns" size={18} color={Colors.secondary} />
@@ -248,10 +248,10 @@ export default function ToolsScreen() {
             <Text style={styles.upcomingDesc}>
               Query A, AAAA, MX, NS & TXT records, authoritative name servers, and domain WHOIS info.
             </Text>
-          </View>
+          </View> */}
 
           {/* Traceroute & Hops */}
-          <View style={[styles.upcomingItem, styles.rowBorder]}>
+          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
             <View style={styles.upcomingHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="alt-route" size={18} color={Colors.tertiary} />
@@ -264,10 +264,10 @@ export default function ToolsScreen() {
             <Text style={styles.upcomingDesc}>
               Trace hop-by-hop packet routing paths and pinpoint intermediate network latency spikes.
             </Text>
-          </View>
+          </View> */}
 
           {/* SSL Cert Inspector */}
-          <View style={[styles.upcomingItem, styles.rowBorder]}>
+          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
             <View style={styles.upcomingHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="lock" size={18} color={Colors.warning} />
@@ -280,10 +280,10 @@ export default function ToolsScreen() {
             <Text style={styles.upcomingDesc}>
               Inspect SSL/TLS expiration dates, Certificate Authority (CA) chains, and cipher algorithms.
             </Text>
-          </View>
+          </View> */}
 
           {/* Wi-Fi Channel Analyzer */}
-          <View style={[styles.upcomingItem, styles.rowBorder]}>
+          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
             <View style={styles.upcomingHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="wifi-find" size={18} color={Colors.error} />
@@ -296,7 +296,7 @@ export default function ToolsScreen() {
             <Text style={styles.upcomingDesc}>
               Evaluate Wi-Fi channel frequency congestion, RSSI signal strength, and access point metrics.
             </Text>
-          </View>
+          </View> */}
         </View>
       </View>
 
@@ -323,7 +323,7 @@ export default function ToolsScreen() {
               <View style={styles.ipSearchBox}>
                 <TextInput
                   style={styles.ipInput}
-                  placeholder="IP address or domain (e.g. 8.8.8.8)..."
+                  placeholder="IP or domain (e.g. 8.8.8.8)..."
                   placeholderTextColor={Colors.outline}
                   value={searchIp}
                   onChangeText={setSearchIp}

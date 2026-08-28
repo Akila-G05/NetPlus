@@ -19,6 +19,8 @@ import {
   JetBrainsMono_500Medium,
 } from '@expo-google-fonts/jetbrains-mono';
 
+import { notificationService } from '@/services/NotificationService';
+
 // Keep splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
 
@@ -33,6 +35,9 @@ export default function RootLayout() {
   useEffect(() => {
     dataUsageTracker.init();
     MobileAds().initialize();
+    notificationService.init().then(() => {
+      notificationService.requestPermissions();
+    });
   }, []);
 
   useEffect(() => {

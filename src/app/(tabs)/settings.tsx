@@ -24,6 +24,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import { useRouter } from 'expo-router';
 
+import { notificationService } from '@/services/NotificationService';
+
 interface SimpleSelectProps {
   options: string[];
   selectedOption: string;
@@ -98,7 +100,7 @@ export default function SettingsScreen() {
   const [_theme, _setTheme] = useState('Dark Mode');
   const [_language, _setLanguage] = useState('English (US)');
   const [dataUnits, setDataUnits] = useState('Mbps');
-  const [_notifications, _setNotifications] = useState(true);
+  const [pushNotifications, setPushNotifications] = useState(true);
   const [autoSaveLogs, setAutoSaveLogs] = useState(true);
 
   // Modals State
@@ -112,12 +114,31 @@ export default function SettingsScreen() {
   const [ratingFeedback, setRatingFeedback] = useState('');
   const [ratedSubmitted, setRatedSubmitted] = useState(false);
 
+  React.useEffect(() => {
+    notificationService.isNotificationsEnabled().then((enabled) => {
+      setPushNotifications(enabled);
+    });
+  }, []);
+
+  const handleToggleNotifications = async (val: boolean) => {
+    setPushNotifications(val);
+    const success = await notificationService.setNotificationsEnabled(val);
+    if (val && !success) {
+      Alert.alert(
+        'Notification Permission Required',
+        'Please allow notification permissions in your device settings to receive diagnostic alerts.'
+      );
+      setPushNotifications(false);
+    }
+  };
+
   // App Reset Handler
   const handleResetApp = async () => {
     _setTheme('Dark Mode');
     _setLanguage('English (US)');
     setDataUnits('Mbps');
-    _setNotifications(true);
+    setPushNotifications(true);
+    notificationService.setNotificationsEnabled(true);
     setAutoSaveLogs(true);
     setResetModalVisible(false);
 
@@ -176,13 +197,20 @@ export default function SettingsScreen() {
           <Text style={styles.cardTitle}>GENERAL PREFERENCES</Text>
         </View>
 
-        <SettingsRow label="Data Units" bordered>
+        {/* <SettingsRow label="Data Units" bordered>
           <SimpleSelect
             options={['Mbps', 'MB/s', 'Kbps']}
             selectedOption={dataUnits}
             onSelect={setDataUnits}
           />
-        </SettingsRow>
+        </SettingsRow> */}
+
+        <SettingsToggle
+          label="Push Notifications"
+          value={pushNotifications}
+          onValueChange={handleToggleNotifications}
+          bordered
+        />
 
         <SettingsToggle
           label="Auto-Save Test Logs"
@@ -268,7 +296,7 @@ export default function SettingsScreen() {
               <Text style={styles.moduleTitle}>Pinging</Text>
             </View>
             <Text style={styles.moduleDesc}>
-              Measures real-time network latency, jitter, and packet loss against Sri Lankan ISP servers (Dialog, Hutch, Mobitel/SLT, Airtel) and global DNS endpoints.
+              Prevent connection drops and reduce lag. NetPulse sends continuous lightweight requests to keep your 4G/5G mobile data active and stop your network radio from going idle.
             </Text>
           </View>
 
@@ -290,7 +318,7 @@ export default function SettingsScreen() {
               <Text style={styles.moduleTitle}>Tools & Geolocation</Text>
             </View>
             <Text style={styles.moduleDesc}>
-              Provides IP tracking, carrier lookup, diagnostic logs, and upcoming network analysis suites designed by Solarfox.
+              Instantly detect your public IP, local gateway, network provider, and connection details. Future updates will bring advanced new features.
             </Text>
           </View>
         </View>
@@ -300,7 +328,7 @@ export default function SettingsScreen() {
           <View style={styles.creditRow}>
             <View style={styles.solarfoxBadge}>
               <MaterialIcons name="bolt" size={16} color={Colors.warning} />
-              <Text style={styles.solarfoxText}>Solarfox</Text>
+              <Text style={styles.solarfoxText}>SOLARFOX </Text>
             </View>
             <Text style={styles.developedByLabel}>Developed by Solarfox</Text>
           </View>
@@ -309,13 +337,13 @@ export default function SettingsScreen() {
 
           <View style={styles.creditRow}>
             <Text style={styles.versionLabel}>Version</Text>
-            <Text style={styles.versionValue}>v1.0.0 (Build 102)</Text>
+            <Text style={styles.versionValue}>v1.0</Text>
           </View>
         </View>
       </View>
 
       {/* ── PRO ACCOUNT BANNER ────────────────────────────── */}
-      <View style={[styles.card, styles.proCard]}>
+      {/* <View style={[styles.card, styles.proCard]}>
         <View style={styles.proHeader}>
           <MaterialIcons name="workspace-premium" size={22} color={Colors.secondaryContainer} />
           <Text style={styles.proTitle}>NETPULSE PRO</Text>
@@ -330,7 +358,7 @@ export default function SettingsScreen() {
         >
           <Text style={gs.btnPrimaryText}>Upgrade to Pro</Text>
         </TouchableOpacity>
-      </View>
+      </View> */}
 
       {/* ── PRIVACY POLICY MODAL ─────────────────────────── */}
       <Modal
@@ -425,10 +453,10 @@ export default function SettingsScreen() {
 
             <View style={styles.dialogButtonRow}>
               <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1, backgroundColor: Colors.surfaceContainerHighest }]}
+                style={[gs.btnSecondary, { flex: 1 }]}
                 onPress={() => setRateModalVisible(false)}
               >
-                <Text style={[gs.btnPrimaryText, { color: Colors.onSurface }]}>Cancel</Text>
+                <Text style={gs.btnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -459,17 +487,17 @@ export default function SettingsScreen() {
 
             <View style={styles.dialogButtonRow}>
               <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1, backgroundColor: Colors.surfaceContainerHighest }]}
+                style={[gs.btnSecondary, { flex: 1 }]}
                 onPress={() => setResetModalVisible(false)}
               >
-                <Text style={[gs.btnPrimaryText, { color: Colors.onSurface }]}>Cancel</Text>
+                <Text style={gs.btnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1, backgroundColor: Colors.error }]}
+                style={[gs.btnDanger, { flex: 1 }]}
                 onPress={handleResetApp}
               >
-                <Text style={[gs.btnPrimaryText, { color: '#ffffff' }]}>Reset All</Text>
+                <Text style={gs.btnDangerText}>Reset All</Text>
               </TouchableOpacity>
             </View>
           </View>

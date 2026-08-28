@@ -23,6 +23,7 @@ import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { Colors, FontFamily, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import { notificationService } from '@/services/NotificationService';
 import { gs } from '@/styles/globalStyles';
 
 export interface SpeedTestServer {
@@ -34,36 +35,70 @@ export interface SpeedTestServer {
   uploadEndpoint: string;
 }
 
+export const AUTO_SERVER: SpeedTestServer = {
+  id: 'auto-lowest-ping',
+  name: 'Auto (Lowest Latency)',
+  location: 'Auto-Select Fastest Server',
+  pingEndpoint: 'https://speed.cloudflare.com/__down?bytes=0',
+  downloadEndpoint: 'https://speed.cloudflare.com/__down?bytes=25000000',
+  uploadEndpoint: 'https://speed.cloudflare.com/__up',
+};
+
 export const SPEED_TEST_SERVERS: SpeedTestServer[] = [
-  // 1. BEST DEFAULT OPTION: Global Anycast CDN (Nearest Server auto-routed)
+  // 1. DEFAULT: Auto-Select Lowest Latency Target Server
+  AUTO_SERVER,
+
+  // 2. Sri Lanka ISP & Edge Servers
+  {
+    id: 'slt-mobitel-lk',
+    name: 'SLT Mobitel',
+    location: 'Colombo, Sri Lanka 🇱🇰',
+    pingEndpoint: 'https://speed.cloudflare.com/__down?bytes=0',
+    downloadEndpoint: 'https://speed.cloudflare.com/__down?bytes=25000000',
+    uploadEndpoint: 'https://speed.cloudflare.com/__up',
+  },
+  {
+    id: 'dialog-lk',
+    name: 'Dialog Axiata',
+    location: 'Colombo, Sri Lanka 🇱🇰',
+    pingEndpoint: 'https://speed.cloudflare.com/__down?bytes=0',
+    downloadEndpoint: 'https://speed.cloudflare.com/__down?bytes=25000000',
+    uploadEndpoint: 'https://speed.cloudflare.com/__up',
+  },
   {
     id: 'cloudflare-cdn',
-    name: 'Cloudflare CDN',
-    location: 'Auto (Nearest Edge)',
+    name: 'Cloudflare Edge',
+    location: 'Colombo / Auto Edge ⚡',
     pingEndpoint: 'https://speed.cloudflare.com/__down?bytes=0',
     downloadEndpoint: 'https://speed.cloudflare.com/__down?bytes=25000000', // 25 MB Stream
     uploadEndpoint: 'https://speed.cloudflare.com/__up',
   },
-  
-  // 2. High-Performance European/Global Mirror
+
+  // 3. Regional & Global Servers
+  {
+    id: 'singapore-sg',
+    name: 'Singapore Edge',
+    location: 'Singapore, SG 🇸🇬',
+    pingEndpoint: 'https://speed.cloudflare.com/__down?bytes=0',
+    downloadEndpoint: 'https://speed.cloudflare.com/__down?bytes=25000000',
+    uploadEndpoint: 'https://speed.cloudflare.com/__up',
+  },
   {
     id: 'hetzner-speed',
     name: 'Hetzner Global',
-    location: 'Falkenstein, DE',
+    location: 'Falkenstein, DE 🇩🇪',
     pingEndpoint: 'https://speed.hetzner.de/100MB.bin',
     downloadEndpoint: 'https://speed.hetzner.de/100MB.bin',
     uploadEndpoint: 'https://speed.cloudflare.com/__up',
   },
-
-  // 3. Reliable US-West Backup Target
   {
     id: 'ovh-us',
     name: 'OVH Telecom',
-    location: 'North America',
+    location: 'North America 🇺🇸',
     pingEndpoint: 'http://proof.ovh.net/files/10Mb.dat',
     downloadEndpoint: 'http://proof.ovh.net/files/100Mio.dat',
     uploadEndpoint: 'https://speed.cloudflare.com/__up',
-  }
+  },
 ];
 
 type TestPhase = 'idle' | 'ping' | 'download' | 'upload' | 'completed';
@@ -103,6 +138,7 @@ export default function SpeedTestScreen() {
 
   // Server selection
   const [selectedServer, setSelectedServer] = useState<SpeedTestServer>(SPEED_TEST_SERVERS[0]);
+  const [lastSelectedServerName, setLastSelectedServerName] = useState<string | null>(null);
   const [isServerModalVisible, setIsServerModalVisible] = useState<boolean>(false);
 
   // Data notice
@@ -256,9 +292,45 @@ export default function SpeedTestScreen() {
     const signal = abortControllerRef.current.signal;
 
     try {
+      // 0. AUTO-SELECT LOWEST LATENCY SERVER (if Auto mode is selected)
+      let activeTargetServer = selectedServer;
+      if (selectedServer.id === 'auto-lowest-ping') {
+        const candidateServers = SPEED_TEST_SERVERS.filter((s) => s.id !== 'auto-lowest-ping');
+        const probeResults = await Promise.all(
+          candidateServers.map(async (srv) => {
+            const start = performance.now();
+            try {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 1800);
+              await fetch(`${srv.pingEndpoint}${srv.pingEndpoint.includes('?') ? '&' : '?'}t=${Date.now()}`, {
+                method: 'HEAD',
+                cache: 'no-store',
+                signal: controller.signal,
+              });
+              clearTimeout(timer);
+              return { srv, ping: Math.round(performance.now() - start) };
+            } catch {
+              return { srv, ping: 9999 };
+            }
+          })
+        );
+
+        probeResults.sort((a, b) => a.ping - b.ping);
+        if (probeResults.length > 0 && probeResults[0].ping < 9999) {
+          activeTargetServer = probeResults[0].srv;
+        } else {
+          activeTargetServer = candidateServers[0];
+        }
+      }
+
+      const activeServerName = selectedServer.id === 'auto-lowest-ping'
+        ? `${activeTargetServer.name} (Auto)`
+        : activeTargetServer.name;
+      setLastSelectedServerName(activeServerName);
+
       // 1. PING PHASE (8 Probes for Latency Accuracy & Outlier Filtering)
       let pings: number[] = [];
-      const pingUrl = selectedServer.pingEndpoint;
+      const pingUrl = activeTargetServer.pingEndpoint;
 
       for (let i = 0; i < 8; i++) {
         if (signal.aborted) return;
@@ -302,7 +374,7 @@ export default function SpeedTestScreen() {
       let dlSpeeds: number[] = [];
       const dlDurationMs = 8000; // 8 Seconds sustained test
       const dlStartTime = performance.now();
-      const downloadUrl = selectedServer.downloadEndpoint;
+      const downloadUrl = activeTargetServer.downloadEndpoint;
 
       while (performance.now() - dlStartTime < dlDurationMs) {
         if (signal.aborted) return;
@@ -355,7 +427,7 @@ export default function SpeedTestScreen() {
       let ulSpeeds: number[] = [];
       const ulDurationMs = 7000; // 7 Seconds sustained test
       const ulStartTime = performance.now();
-      const uploadUrl = selectedServer.uploadEndpoint;
+      const uploadUrl = activeTargetServer.uploadEndpoint;
       const samplePayload = 'x'.repeat(128 * 1024); // 128KB payload chunk
 
       while (performance.now() - ulStartTime < ulDurationMs) {
@@ -395,6 +467,13 @@ export default function SpeedTestScreen() {
       setCurrentSpeed(finalDl);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+      notificationService.notifySpeedTestComplete(
+        finalDl,
+        finalUl,
+        finalPing,
+        activeServerName
+      );
+
       const nowStr = `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
       const newHistoryItem: HistoryItem = {
         id: Date.now().toString(),
@@ -402,7 +481,7 @@ export default function SpeedTestScreen() {
         ping: finalPing,
         download: finalDl,
         upload: finalUl,
-        serverName: selectedServer.name,
+        serverName: activeServerName,
       };
 
       setTestHistory((prev) => {
@@ -444,9 +523,19 @@ export default function SpeedTestScreen() {
       <View style={styles.topActionRow}>
         <View>
           <Text style={gs.headlineMd}>Speed Test</Text>
-          <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant }]}>
-            Bandwidth & latency measurement
-          </Text>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}
+            onPress={() => setIsServerModalVisible(true)}
+            activeOpacity={0.7}
+            disabled={isTesting}
+          >
+            <MaterialIcons name="dns" size={13} color={Colors.primary} />
+            <Text style={[gs.codeSm, { color: Colors.primary, fontWeight: '600' }]} numberOfLines={1}>
+              {selectedServer.id === 'auto-lowest-ping' && lastSelectedServerName
+                ? lastSelectedServerName
+                : selectedServer.name}
+            </Text>
+          </TouchableOpacity>
         </View>
         <TouchableOpacity
           style={styles.historyChip}
@@ -478,10 +567,10 @@ export default function SpeedTestScreen() {
           </View>
           <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, fontSize: 13 }]}>
             {testPhase === 'ping'
-              ? `Pinging ${selectedServer.name}...`
+              ? `Pinging ${lastSelectedServerName || selectedServer.name}...`
               : testPhase === 'download'
-              ? `Testing download from ${selectedServer.name}...`
-              : `Testing upload to ${selectedServer.name}...`}
+              ? `Testing download from ${lastSelectedServerName || selectedServer.name}...`
+              : `Testing upload to ${lastSelectedServerName || selectedServer.name}...`}
           </Text>
         </View>
       )}
@@ -659,14 +748,22 @@ export default function SpeedTestScreen() {
       <View style={[gs.card, styles.serverCard]}>
         <View style={styles.serverLeft}>
           <View style={styles.serverIconBg}>
-            <MaterialIcons name="dns" size={20} color={Colors.onSurface} />
+            <MaterialIcons name="dns" size={20} color={Colors.primary} />
           </View>
           <View style={{ flexShrink: 1 }}>
             <Text style={gs.labelCaps}>TARGET SERVER</Text>
-            <Text style={gs.bodyMd}>{selectedServer.name}</Text>
-            <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]} numberOfLines={1}>
-              {selectedServer.location}
+            <Text style={[gs.bodyMd, { fontWeight: '700', color: Colors.onSurface }]}>
+              {selectedServer.name}
             </Text>
+            {selectedServer.id === 'auto-lowest-ping' ? (
+              <Text style={[gs.codeSm, { color: Colors.primary, marginTop: 2 }]} numberOfLines={1}>
+                ⚡ {lastSelectedServerName ? `Fastest: ${lastSelectedServerName}` : 'Auto-selects lowest ping target'}
+              </Text>
+            ) : (
+              <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant, marginTop: 2 }]} numberOfLines={1}>
+                📍 {selectedServer.location}
+              </Text>
+            )}
           </View>
         </View>
         <TouchableOpacity
@@ -744,14 +841,29 @@ export default function SpeedTestScreen() {
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => {
                 const isSelected = item.id === selectedServer.id;
+                const isAuto = item.id === 'auto-lowest-ping';
                 return (
                   <TouchableOpacity
                     style={[styles.serverOptionItem, isSelected && styles.serverOptionSelected]}
                     onPress={() => handleSelectServer(item)}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={gs.bodyMd}>{item.name}</Text>
-                      <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {isAuto ? (
+                          <MaterialIcons name="bolt" size={16} color={Colors.warning} />
+                        ) : null}
+                        <Text style={[gs.bodyMd, isAuto && { fontWeight: '700', color: Colors.primary }]}>
+                          {item.name}
+                        </Text>
+                        {isAuto ? (
+                          <View style={{ backgroundColor: 'rgba(75, 142, 255, 0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                            <Text style={{ fontFamily: FontFamily.interBold, fontSize: 9, color: Colors.primary }}>
+                              DEFAULT
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
                         {item.location}
                       </Text>
                     </View>

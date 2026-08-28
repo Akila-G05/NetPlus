@@ -15,6 +15,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
 import { useRouter } from 'expo-router';
@@ -23,6 +24,24 @@ import {
   clearBackgroundLogsAsync,
   type BackgroundLogEntry,
 } from '@/services/BackgroundTaskService';
+
+export interface IpHistoryEntry {
+  id: string;
+  ip: string;
+  type?: string;
+  org?: string;
+  isp?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  countryCode?: string;
+  lat?: number;
+  lon?: number;
+  timezone?: string;
+  timestamp: string;
+}
+
+const IP_HISTORY_STORAGE_KEY = '@netplus/ip_history';
 
 interface IpDetails {
   ip: string;
@@ -52,6 +71,42 @@ export default function ToolsScreen() {
   const [ipDetails, setIpDetails] = useState<IpDetails | null>(null);
   const [ipError, setIpError] = useState<string | null>(null);
 
+  // IP History State
+  const [ipHistoryModalVisible, setIpHistoryModalVisible] = useState(false);
+  const [ipHistory, setIpHistory] = useState<IpHistoryEntry[]>([]);
+
+  const loadIpHistory = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(IP_HISTORY_STORAGE_KEY);
+      if (raw) {
+        setIpHistory(JSON.parse(raw));
+      }
+    } catch {}
+  };
+
+  React.useEffect(() => {
+    loadIpHistory();
+  }, []);
+
+  const saveIpToHistory = async (details: IpDetails) => {
+    if (!details.ip || details.ip === 'Unknown IP') return;
+    try {
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date().toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const newEntry: IpHistoryEntry = {
+        id: Date.now().toString(),
+        ...details,
+        timestamp: nowStr,
+      };
+
+      setIpHistory((prev) => {
+        const filtered = prev.filter((item) => item.ip !== details.ip);
+        const updated = [newEntry, ...filtered].slice(0, 30);
+        AsyncStorage.setItem(IP_HISTORY_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+    } catch {}
+  };
+
   const handleOpenBgLogs = async () => {
     const logs = await getBackgroundLogsAsync();
     setBgLogs(logs);
@@ -64,6 +119,37 @@ export default function ToolsScreen() {
     Alert.alert('Logs Cleared', 'Background diagnostic logs have been reset.');
   };
 
+  const handleOpenIpHistory = async () => {
+    await loadIpHistory();
+    setIpHistoryModalVisible(true);
+  };
+
+  const handleClearIpHistory = async () => {
+    try {
+      await AsyncStorage.removeItem(IP_HISTORY_STORAGE_KEY);
+      setIpHistory([]);
+      Alert.alert('History Cleared', 'Tracked IP history has been reset.');
+    } catch {}
+  };
+
+  const handleSelectHistoryItem = (item: IpHistoryEntry) => {
+    setIpDetails({
+      ip: item.ip,
+      type: item.type,
+      isp: item.isp,
+      org: item.org,
+      city: item.city,
+      region: item.region,
+      country: item.country,
+      countryCode: item.countryCode,
+      lat: item.lat,
+      lon: item.lon,
+      timezone: item.timezone,
+    });
+    setSearchIp(item.ip);
+    setIpHistoryModalVisible(false);
+  };
+
   const fetchIpDetails = async (queryTarget?: string) => {
     setIpLoading(true);
     setIpError(null);
@@ -71,6 +157,7 @@ export default function ToolsScreen() {
       const cleanTarget = queryTarget ? queryTarget.trim().replace(/^https?:\/\//i, '').split('/')[0] : '';
       const endpoint = cleanTarget ? `https://ipapi.co/${cleanTarget}/json/` : 'https://ipapi.co/json/';
       const res = await fetch(endpoint, { cache: 'no-store' });
+      let fetchedDetails: IpDetails | null = null;
       if (!res.ok) {
         const fbEndpoint = cleanTarget ? `http://ip-api.com/json/${cleanTarget}` : 'http://ip-api.com/json/';
         const fbRes = await fetch(fbEndpoint);
@@ -78,7 +165,7 @@ export default function ToolsScreen() {
         if (fbData.status === 'fail') {
           throw new Error(fbData.message || 'Failed to lookup IP details');
         }
-        setIpDetails({
+        fetchedDetails = {
           ip: fbData.query || cleanTarget || 'Unknown IP',
           isp: fbData.isp || fbData.org || 'Unknown ISP',
           org: fbData.org || fbData.as || 'Unknown AS',
@@ -89,13 +176,13 @@ export default function ToolsScreen() {
           lat: fbData.lat,
           lon: fbData.lon,
           timezone: fbData.timezone || 'UTC',
-        });
+        };
       } else {
         const data = await res.json();
         if (data.error) {
           throw new Error(data.reason || 'Invalid IP or domain name');
         }
-        setIpDetails({
+        fetchedDetails = {
           ip: data.ip || cleanTarget || 'Unknown IP',
           type: data.version || 'IPv4',
           isp: data.org || data.asn || 'Unknown ISP',
@@ -107,7 +194,11 @@ export default function ToolsScreen() {
           lat: data.latitude,
           lon: data.longitude,
           timezone: data.timezone || 'UTC',
-        });
+        };
+      }
+      setIpDetails(fetchedDetails);
+      if (fetchedDetails) {
+        saveIpToHistory(fetchedDetails);
       }
     } catch (err: any) {
       setIpError(err?.message || 'Unable to resolve IP geolocation information.');
@@ -331,26 +422,37 @@ export default function ToolsScreen() {
                   autoCorrect={false}
                 />
                 <TouchableOpacity
-                  style={styles.ipSearchBtn}
+                  style={[gs.btnPrimary, { paddingHorizontal: 14, paddingVertical: 8 }]}
                   onPress={() => fetchIpDetails(searchIp)}
                   activeOpacity={0.8}
                 >
-                  <MaterialIcons name="search" size={18} color="#ffffff" />
-                  <Text style={styles.ipSearchBtnText}>Search</Text>
+                  <MaterialIcons name="search" size={18} color={Colors.onPrimary} />
+                  <Text style={gs.btnPrimaryText}>Search</Text>
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={styles.myIpBtn}
-                onPress={() => {
-                  setSearchIp('');
-                  fetchIpDetails();
-                }}
-                activeOpacity={0.7}
-              >
-                <MaterialIcons name="gps-fixed" size={14} color={Colors.primary} />
-                <Text style={styles.myIpBtnText}>My Public IP</Text>
-              </TouchableOpacity>
+              <View style={styles.ipBadgeRow}>
+                <TouchableOpacity
+                  style={styles.myIpBtn}
+                  onPress={() => {
+                    setSearchIp('');
+                    fetchIpDetails();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name="gps-fixed" size={14} color={Colors.primary} />
+                  <Text style={styles.myIpBtnText}>MY PUBLIC IP</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.historyBadgeBtn}
+                  onPress={handleOpenIpHistory}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name="history" size={14} color={Colors.secondaryContainer} />
+                  <Text style={styles.historyBadgeBtnText}>HISTORY</Text>
+                </TouchableOpacity>
+              </View>
 
               {ipLoading ? (
                 <View style={styles.ipLoadingBox}>
@@ -373,22 +475,28 @@ export default function ToolsScreen() {
                   </View>
 
                   <View style={styles.ipGrid}>
-                    <View style={styles.ipGridItem}>
-                      <Text style={gs.labelCaps}>ISP / CARRIER</Text>
-                      <Text style={styles.ipValText}>{ipDetails.isp}</Text>
-                    </View>
+                    {ipDetails.isp ? (
+                      <View style={styles.ipGridItem}>
+                        <Text style={gs.labelCaps}>ISP / CARRIER</Text>
+                        <Text style={styles.ipValText}>{ipDetails.isp}</Text>
+                      </View>
+                    ) : null}
 
-                    <View style={styles.ipGridItem}>
-                      <Text style={gs.labelCaps}>LOCATION</Text>
-                      <Text style={styles.ipValText}>
-                        {[ipDetails.city, ipDetails.region, ipDetails.country].filter(Boolean).join(', ')}
-                      </Text>
-                    </View>
+                    {ipDetails.org ? (
+                      <View style={styles.ipGridItem}>
+                        <Text style={gs.labelCaps}>ORGANIZATION / ASN</Text>
+                        <Text style={styles.ipValText}>{ipDetails.org}</Text>
+                      </View>
+                    ) : null}
 
-                    <View style={styles.ipGridItem}>
-                      <Text style={gs.labelCaps}>ORGANIZATION / ASN</Text>
-                      <Text style={styles.ipValText}>{ipDetails.org}</Text>
-                    </View>
+                    {ipDetails.city || ipDetails.region || ipDetails.country ? (
+                      <View style={styles.ipGridItem}>
+                        <Text style={gs.labelCaps}>LOCATION</Text>
+                        <Text style={styles.ipValText}>
+                          {[ipDetails.city, ipDetails.region, ipDetails.country].filter(Boolean).join(', ')}
+                        </Text>
+                      </View>
+                    ) : null}
 
                     {ipDetails.lat && ipDetails.lon ? (
                       <View style={styles.ipGridItem}>
@@ -416,6 +524,91 @@ export default function ToolsScreen() {
             >
               <Text style={gs.btnPrimaryText}>Close</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── TRACKED IP HISTORY MODAL ───────────────────────── */}
+      <Modal
+        visible={ipHistoryModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIpHistoryModalVisible(false)}
+      >
+        <View style={styles.fullModalOverlay}>
+          <View style={styles.fullModalContent}>
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialIcons name="history" size={22} color={Colors.secondaryContainer} />
+                <Text style={styles.modalTitle}>Tracked IP History</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIpHistoryModalVisible(false)}>
+                <MaterialIcons name="close" size={22} color={Colors.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+
+            {ipHistory.length === 0 ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <MaterialIcons name="history-toggle-off" size={48} color={Colors.outline} />
+                <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 12 }]}>
+                  No IP search history recorded yet.
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={ipHistory}
+                keyExtractor={(item) => item.id}
+                style={{ marginTop: 12, maxHeight: 380 }}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.historyItemCard}
+                    onPress={() => handleSelectHistoryItem(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.historyItemHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.historyIpText}>{item.ip}</Text>
+                        {item.countryCode ? (
+                          <View style={styles.countryBadge}>
+                            <Text style={styles.countryBadgeText}>{item.countryCode}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>{item.timestamp}</Text>
+                    </View>
+
+                    {item.isp || item.org ? (
+                      <Text style={[gs.bodyMd, { color: Colors.onSurface, fontSize: 13, marginTop: 4 }]} numberOfLines={1}>
+                        {item.isp || item.org}
+                      </Text>
+                    ) : null}
+
+                    {[item.city, item.region, item.country].filter(Boolean).length > 0 ? (
+                      <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant, marginTop: 2 }]} numberOfLines={1}>
+                        📍 {[item.city, item.region, item.country].filter(Boolean).join(', ')}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity
+                style={[gs.btnSecondary, { flex: 1 }]}
+                onPress={handleClearIpHistory}
+                disabled={ipHistory.length === 0}
+              >
+                <Text style={gs.btnSecondaryText}>Clear History</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[gs.btnPrimary, { flex: 1 }]}
+                onPress={() => setIpHistoryModalVisible(false)}
+              >
+                <Text style={gs.btnPrimaryText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -474,10 +667,10 @@ export default function ToolsScreen() {
 
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
               <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1, backgroundColor: Colors.surfaceContainerHighest }]}
+                style={[gs.btnSecondary, { flex: 1 }]}
                 onPress={handleClearBgLogs}
               >
-                <Text style={[gs.btnPrimaryText, { color: Colors.onSurface }]}>Clear Logs</Text>
+                <Text style={gs.btnSecondaryText}>Clear Logs</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[gs.btnPrimary, { flex: 1 }]}
@@ -608,21 +801,58 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 11,
   },
+  ipBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
   myIpBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    alignSelf: 'flex-start',
-    marginBottom: 16,
     backgroundColor: 'rgba(75, 142, 255, 0.12)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 12,
   },
   myIpBtnText: {
     ...Typography.labelCaps,
     fontSize: 10,
     color: Colors.primary,
+  },
+  historyBadgeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0, 227, 253, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  historyBadgeBtnText: {
+    ...Typography.labelCaps,
+    fontSize: 10,
+    color: Colors.secondaryContainer,
+  },
+  historyItemCard: {
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    padding: 12,
+    marginBottom: 8,
+  },
+  historyItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  historyIpText: {
+    ...Typography.bodyMd,
+    fontWeight: '700',
+    color: Colors.primary,
+    fontSize: 15,
   },
   ipLoadingBox: {
     paddingVertical: 30,

@@ -5,7 +5,7 @@
  * Import `gs` (global styles) wherever you need shared styles.
  */
 import { StyleSheet } from 'react-native';
-import { Colors, Typography, Spacing, BorderRadius, Elevation } from '@/constants/theme';
+import { Colors, FontFamily, Typography, Spacing, BorderRadius, Elevation } from '@/constants/theme';
 
 export const gs = StyleSheet.create({
   // ── Screen / Layout ─────────────────────────────────────
@@ -84,31 +84,61 @@ export const gs = StyleSheet.create({
   // ── Buttons ─────────────────────────────────────────────
   btnPrimary: {
     backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.default,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: Spacing.elementGap,
+    elevation: 2,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  btnPrimaryText: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: Colors.onPrimary,
+    textAlign: 'center' as const,
+  },
+  btnSecondary: {
+    backgroundColor: Colors.surfaceContainerHighest,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: Spacing.elementGap,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+  },
+  btnSecondaryText: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: Colors.onSurface,
+    textAlign: 'center' as const,
+  },
+  btnDanger: {
+    backgroundColor: Colors.error,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     flexDirection: 'row' as const,
     gap: Spacing.elementGap,
   },
-  btnPrimaryText: {
-    ...Typography.headlineMd,
-    color: Colors.onPrimary,
-  },
-  btnSecondary: {
-    backgroundColor: 'transparent',
-    borderRadius: BorderRadius.default,
-    borderWidth: 1,
-    borderColor: Colors.secondaryContainer,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-  },
-  btnSecondaryText: {
-    ...Typography.headlineMd,
-    color: Colors.secondaryContainer,
+  btnDangerText: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#ffffff',
+    textAlign: 'center' as const,
   },
 
   // ── Status ──────────────────────────────────────────────

@@ -219,43 +219,59 @@ async function nativePing(host: string, timeoutMs: number): Promise<number | nul
   const cleanHost = sanitizeHost(host);
   if (!cleanHost) return null;
 
+  const probeTimeout = Math.min(timeoutMs, 1500);
   try {
-    return await nativeIcmpPing(cleanHost, timeoutMs);
+    const res = await nativeIcmpPing(cleanHost, probeTimeout);
+    if (typeof res === 'number' && !isNaN(res) && res > 0) {
+      return res;
+    }
+    return null;
   } catch (err: any) {
-    console.log(`[ICMP] Native ping exception: ${err?.message || err}`);
     return null;
   }
 }
 
-// Latency is measured with an HTTP round-trip (HEAD request) against the selected host.
+// Latency is measured with an HTTP round-trip (HEAD/GET request) against the selected host.
 async function httpPing(host: string, timeoutMs: number): Promise<number | null> {
-  const cleanHost = sanitizeHost(host);
+  let cleanHost = sanitizeHost(host);
   if (!cleanHost) return null;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // Map IP addresses (like 8.8.8.8) to domain endpoints since raw IPs don't answer HTTP requests
+  if (cleanHost === '8.8.8.8' || cleanHost === '8.8.4.4') {
+    cleanHost = 'google.com';
+  } else if (cleanHost === '1.1.1.1' || cleanHost === '1.0.0.1') {
+    cleanHost = 'cloudflare.com';
+  }
+
+  const probeTimeout = Math.min(timeoutMs, 1500);
   const startedAt = performance.now();
 
+  // Attempt 1: HTTPS HEAD
   try {
+    const controller1 = new AbortController();
+    const timer1 = setTimeout(() => controller1.abort(), probeTimeout);
     await fetch(`https://${cleanHost}/`, {
       method: 'HEAD',
       cache: 'no-store',
-      signal: controller.signal,
+      signal: controller1.signal,
     });
-    return performance.now() - startedAt;
+    clearTimeout(timer1);
+    return Math.max(1, performance.now() - startedAt);
   } catch {
+    // Attempt 2: HTTP HEAD with separate signal
     try {
+      const controller2 = new AbortController();
+      const timer2 = setTimeout(() => controller2.abort(), probeTimeout);
       await fetch(`http://${cleanHost}/`, {
         method: 'HEAD',
         cache: 'no-store',
-        signal: controller.signal,
+        signal: controller2.signal,
       });
-      return performance.now() - startedAt;
+      clearTimeout(timer2);
+      return Math.max(1, performance.now() - startedAt);
     } catch {
       return null;
     }
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -430,11 +446,12 @@ export default function PingingScreen() {
 
     const tick = async () => {
       if (!session.active) return;
+      const startTime = Date.now();
 
       const latencyRaw = await pingHost(host, requestTimeoutMs, pingMethod);
       const latency =
         latencyRaw !== null ? Math.min(Math.round(latencyRaw), MAX_PING_MS) : null;
-      // console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
+      console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
       if (!session.active) return; // stopped while in flight
 
       dataUsageTracker.recordPingResult(latency !== null);
@@ -481,7 +498,9 @@ export default function PingingScreen() {
       }
 
       if (session.active) {
-        session.timer = setTimeout(tick, intervalMs);
+        const elapsed = Date.now() - startTime;
+        const nextDelay = Math.max(100, intervalMs - elapsed);
+        session.timer = setTimeout(tick, nextDelay);
       }
     };
 

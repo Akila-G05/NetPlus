@@ -61,6 +61,9 @@ function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) 
             <FlatList
               data={options}
               keyExtractor={(item) => item}
+              initialNumToRender={8}
+              maxToRenderPerBatch={10}
+              windowSize={5}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[

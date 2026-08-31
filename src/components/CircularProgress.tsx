@@ -28,7 +28,7 @@ interface CircularProgressProps {
   children?: React.ReactNode;
 }
 
-export default function CircularProgress({
+export default React.memo(function CircularProgress({
   progress,
   size = 80,
   strokeWidth = 6,
@@ -92,7 +92,7 @@ export default function CircularProgress({
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   center: {

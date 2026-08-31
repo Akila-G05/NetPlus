@@ -839,6 +839,10 @@ export default function SpeedTestScreen() {
             <FlatList
               data={SPEED_TEST_SERVERS}
               keyExtractor={(item) => item.id}
+              initialNumToRender={8}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              removeClippedSubviews={true}
               renderItem={({ item }) => {
                 const isSelected = item.id === selectedServer.id;
                 const isAuto = item.id === 'auto-lowest-ping';
@@ -915,6 +919,10 @@ export default function SpeedTestScreen() {
               <FlatList
                 data={testHistory}
                 keyExtractor={(item) => item.id}
+                initialNumToRender={8}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={true}
                 renderItem={({ item }) => (
                   <View style={styles.historyCard}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>

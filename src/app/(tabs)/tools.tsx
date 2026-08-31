@@ -560,6 +560,10 @@ export default function ToolsScreen() {
                 keyExtractor={(item) => item.id}
                 style={{ marginTop: 12, maxHeight: 380 }}
                 showsVerticalScrollIndicator={false}
+                initialNumToRender={8}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={true}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.historyItemCard}
@@ -644,6 +648,10 @@ export default function ToolsScreen() {
                 data={bgLogs}
                 keyExtractor={(item) => item.id}
                 style={{ marginTop: 12, maxHeight: 380 }}
+                initialNumToRender={8}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={true}
                 renderItem={({ item }) => (
                   <View style={styles.bgLogItem}>
                     <View style={styles.bgLogHeader}>

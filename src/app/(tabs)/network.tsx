@@ -219,9 +219,8 @@ export default function NetworkScreen() {
   useEffect(() => {
     return dataUsageTracker.subscribe(() => {
       setDataUsage(dataUsageTracker.getStats());
-      fetchStorageSize();
     });
-  }, [fetchStorageSize]);
+  }, []);
 
   // Re-sync data usage stats when tab regains focus (freezeOnBlur pauses
   // subscriber callbacks while un-focused, so we need to re-read on focus)

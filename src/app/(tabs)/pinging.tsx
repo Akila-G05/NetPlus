@@ -57,6 +57,9 @@ function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) 
             <FlatList
               data={options}
               keyExtractor={(item) => item}
+              initialNumToRender={8}
+              maxToRenderPerBatch={10}
+              windowSize={5}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[
@@ -219,7 +222,7 @@ async function nativePing(host: string, timeoutMs: number): Promise<number | nul
   const cleanHost = sanitizeHost(host);
   if (!cleanHost) return null;
 
-  const probeTimeout = Math.min(timeoutMs, 1500);
+  const probeTimeout = Math.max(timeoutMs, 3000);
   try {
     const res = await nativeIcmpPing(cleanHost, probeTimeout);
     if (typeof res === 'number' && !isNaN(res) && res > 0) {
@@ -231,39 +234,41 @@ async function nativePing(host: string, timeoutMs: number): Promise<number | nul
   }
 }
 
-// Latency is measured with an HTTP round-trip (HEAD/GET request) against the selected host.
+// Latency is measured with an HTTP round-trip (GET/HEAD request) against the selected host.
 async function httpPing(host: string, timeoutMs: number): Promise<number | null> {
   let cleanHost = sanitizeHost(host);
   if (!cleanHost) return null;
 
-  // Map IP addresses (like 8.8.8.8) to domain endpoints since raw IPs don't answer HTTP requests
-  if (cleanHost === '8.8.8.8' || cleanHost === '8.8.4.4') {
-    cleanHost = 'google.com';
-  } else if (cleanHost === '1.1.1.1' || cleanHost === '1.0.0.1') {
-    cleanHost = 'cloudflare.com';
+  const probeTimeout = Math.max(timeoutMs, 3000);
+
+  // Directly map common target IP/domain presets to fast, non-redirecting HTTP endpoints
+  let targetUrl = `https://${cleanHost}/`;
+  if (cleanHost === '8.8.8.8' || cleanHost === '8.8.4.4' || cleanHost.includes('google')) {
+    targetUrl = 'https://www.google.com/generate_204';
+  } else if (cleanHost === '1.1.1.1' || cleanHost === '1.0.0.1' || cleanHost.includes('cloudflare')) {
+    targetUrl = 'https://1.1.1.1/cdn-cgi/trace';
   }
 
-  const probeTimeout = Math.min(timeoutMs, 1500);
   const startedAt = performance.now();
 
-  // Attempt 1: HTTPS HEAD
+  // Attempt 1: Configured HTTPS endpoint
   try {
     const controller1 = new AbortController();
     const timer1 = setTimeout(() => controller1.abort(), probeTimeout);
-    await fetch(`https://${cleanHost}/`, {
-      method: 'HEAD',
+    await fetch(targetUrl, {
+      method: 'GET',
       cache: 'no-store',
       signal: controller1.signal,
     });
     clearTimeout(timer1);
     return Math.max(1, performance.now() - startedAt);
   } catch {
-    // Attempt 2: HTTP HEAD with separate signal
+    // Attempt 2: Fallback to HTTP GET on host
     try {
       const controller2 = new AbortController();
       const timer2 = setTimeout(() => controller2.abort(), probeTimeout);
       await fetch(`http://${cleanHost}/`, {
-        method: 'HEAD',
+        method: 'GET',
         cache: 'no-store',
         signal: controller2.signal,
       });

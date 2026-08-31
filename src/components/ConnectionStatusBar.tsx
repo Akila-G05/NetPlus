@@ -21,7 +21,7 @@ const GENERATION_LABELS: Record<string, string> = {
 
 type IconName = keyof typeof MaterialIcons.glyphMap;
 
-export default function ConnectionStatusBar() {
+export default React.memo(function ConnectionStatusBar() {
   const [state, setState] = useState<NetInfoState | null>(null);
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function ConnectionStatusBar() {
       <MaterialIcons name={statusIcon} size={20} color={Colors.onSurfaceVariant} />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

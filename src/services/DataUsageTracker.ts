@@ -55,6 +55,8 @@ class DataUsageTracker {
   private receivedRequests = 1398;
   private lostRequests = 22;
 
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ── Public API ─────────────────────────────────────────
 
   setPingingActive(active: boolean) {
@@ -87,15 +89,18 @@ class DataUsageTracker {
         const response = await tracker.originalFetch(input, init);
 
         // ── Measure incoming bytes ────────────────────
-        const cloned = response.clone();
-        cloned.arrayBuffer().then((buf) => {
-          const receivedBytes = buf.byteLength || 0;
-          tracker.record(sentBytes, receivedBytes);
-        }).catch(() => {
-          const cl = response.headers.get('content-length');
-          if (cl) tracker.record(sentBytes, parseInt(cl, 10));
-          else tracker.record(sentBytes, 0);
-        });
+        const cl = response.headers.get('content-length');
+        if (cl && !isNaN(parseInt(cl, 10))) {
+          tracker.record(sentBytes, parseInt(cl, 10));
+        } else {
+          const cloned = response.clone();
+          cloned.arrayBuffer().then((buf) => {
+            const receivedBytes = buf.byteLength || 0;
+            tracker.record(sentBytes, receivedBytes);
+          }).catch(() => {
+            tracker.record(sentBytes, 0);
+          });
+        }
 
         return response;
       } catch (err) {
@@ -182,19 +187,23 @@ class DataUsageTracker {
     }
   }
 
-  private async savePingStats() {
-    try {
-      await AsyncStorage.setItem(
-        '@netplus/overall-ping-stats',
-        JSON.stringify({
-          sentRequests: this.sentRequests,
-          receivedRequests: this.receivedRequests,
-          lostRequests: this.lostRequests,
-        })
-      );
-    } catch {
-      // Ignore
-    }
+  private savePingStats() {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(async () => {
+      this.saveTimer = null;
+      try {
+        await AsyncStorage.setItem(
+          '@netplus/overall-ping-stats',
+          JSON.stringify({
+            sentRequests: this.sentRequests,
+            receivedRequests: this.receivedRequests,
+            lostRequests: this.lostRequests,
+          })
+        );
+      } catch {
+        // Ignore
+      }
+    }, 2000);
   }
 
   getLiveRate(windowMs = 2000): { rxBytesPerSec: number; txBytesPerSec: number } {

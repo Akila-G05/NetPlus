@@ -23,7 +23,8 @@ class NetPlusPingModule : Module() {
 
     if (cleanHost.isEmpty()) return null
 
-    val timeoutSec = maxOf(1, (timeoutMs + 999) / 1000)
+    val effectiveTimeoutMs = maxOf(timeoutMs, 3000)
+    val timeoutSec = maxOf(3, (effectiveTimeoutMs + 999) / 1000)
 
     val cmd = arrayOf("ping", "-c", "1", "-w", "$timeoutSec", cleanHost)
     try {
@@ -31,7 +32,7 @@ class NetPlusPingModule : Module() {
         .redirectErrorStream(true)
         .start()
 
-      val exited = process.waitFor(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+      val exited = process.waitFor(effectiveTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
       if (!exited) {
         try {
           process.destroyForcibly()
@@ -48,14 +49,19 @@ class NetPlusPingModule : Module() {
       val timeMatch = timeRegex.find(output)
       if (timeMatch != null) {
         val valMs = timeMatch.groupValues[1].toDoubleOrNull()
-        if (valMs != null) return valMs
+        if (valMs != null && valMs > 0) return valMs
       }
 
       // 2. Match summary line: "rtt min/avg/max/mdev = 18.234/18.234/18.234/0.000 ms"
       val rttRegex = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
       val rttMatch = rttRegex.find(output)
       val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
-      if (rttMs != null) return rttMs
+      if (rttMs != null && rttMs > 0) return rttMs
+
+      // 3. Fallback: Check if packet was received successfully (0% packet loss / 1 received)
+      if (output.contains("1 received", ignoreCase = true) || output.contains("0% packet loss", ignoreCase = true) || output.contains("0% loss", ignoreCase = true)) {
+        return 1.0
+      }
     } catch (e: Exception) {
       e.printStackTrace()
     }

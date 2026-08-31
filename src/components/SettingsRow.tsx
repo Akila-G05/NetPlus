@@ -14,7 +14,7 @@ interface SettingsRowProps {
   style?: ViewStyle;
 }
 
-export default function SettingsRow({
+const SettingsRow = React.memo(function SettingsRow({
   label,
   children,
   bordered,
@@ -26,7 +26,9 @@ export default function SettingsRow({
       <View style={styles.control}>{children}</View>
     </View>
   );
-}
+});
+
+export default SettingsRow;
 
 /* ── Toggle shorthand ──────────────────────────────────── */
 interface SettingsToggleProps {
@@ -36,7 +38,7 @@ interface SettingsToggleProps {
   bordered?: boolean;
 }
 
-export function SettingsToggle({
+export const SettingsToggle = React.memo(function SettingsToggle({
   label,
   value,
   onValueChange,
@@ -55,7 +57,7 @@ export function SettingsToggle({
       />
     </SettingsRow>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: {

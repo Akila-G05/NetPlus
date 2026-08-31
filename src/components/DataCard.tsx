@@ -16,7 +16,7 @@ interface DataCardProps {
   glass?: boolean;
 }
 
-export default function DataCard({
+export default React.memo(function DataCard({
   title,
   icon,
   iconColor = Colors.primary,
@@ -35,7 +35,7 @@ export default function DataCard({
       {children}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {

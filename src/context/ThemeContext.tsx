@@ -41,16 +41,19 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isDark = effectiveTheme === 'dark';
   const colors = isDark ? DarkColors : LightColors;
 
+  const value = React.useMemo(
+    () => ({
+      themeMode,
+      setThemeMode,
+      colors,
+      isDark,
+      effectiveTheme,
+    }),
+    [themeMode, colors, isDark, effectiveTheme]
+  );
+
   return (
-    <ThemeContext.Provider
-      value={{
-        themeMode,
-        setThemeMode,
-        colors,
-        isDark,
-        effectiveTheme,
-      }}
-    >
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

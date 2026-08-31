@@ -59,8 +59,8 @@ TaskManager.defineTask(NETPLUS_BACKGROUND_PING_TASK, async () => {
     let status: BackgroundLogEntry['status'] = 'SUCCESS';
 
     try {
-      await fetch('https://8.8.8.8', {
-        method: 'HEAD',
+      await fetch('https://www.google.com/generate_204', {
+        method: 'GET',
         signal: controller.signal,
       });
       latency = Date.now() - startTime;

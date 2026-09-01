@@ -4,7 +4,6 @@
  */
 import { useEffect } from 'react';
 import { Slot } from 'expo-router';
-import '@/services/BackgroundTaskService';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import { MobileAds } from '@/services/MobileAdsService';
 import { StatusBar } from 'expo-status-bar';

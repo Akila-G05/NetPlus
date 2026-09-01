@@ -8,16 +8,8 @@ import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { Colors, BorderRadius } from '@/constants/theme';
+import { GENERATION_LABELS } from '@/constants/network';
 import { gs } from '@/styles/globalStyles';
-
-const GENERATION_LABELS: Record<string, string> = {
-  '0g': 'NO SIGNAL',
-  '1g': '2G',
-  '2g': '2G',
-  '3g': '3G',
-  '4g': '4G',
-  '5g': '5G',
-};
 
 type IconName = keyof typeof MaterialIcons.glyphMap;
 

@@ -5,17 +5,16 @@
  */
 import CircularProgress from '@/components/CircularProgress';
 import DataCard from '@/components/DataCard';
-import { BorderRadius, Colors, FontFamily, Spacing, Typography } from '@/constants/theme';
+import { BorderRadius, Colors, Spacing } from '@/constants/theme';
+import { GENERATION_LABELS } from '@/constants/network';
 import { dataUsageTracker, formatBytes, formatSpeedRate, type DataUsageStats } from '@/services/DataUsageTracker';
 import { gs } from '@/styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { useIsFocused } from '@react-navigation/native';
 import * as Device from 'expo-device';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -33,15 +32,6 @@ const UPLOAD_BODY = 'x'.repeat(UPLOAD_TEST_BYTES);
 const HISTORY_LIMIT = 40;
 
 type IconName = keyof typeof MaterialIcons.glyphMap;
-
-const GENERATION_LABELS: Record<string, string> = {
-  '0g': '',
-  '1g': '2G',
-  '2g': '2G',
-  '3g': '3G',
-  '4g': '4G',
-  '5g': '5G',
-};
 
 async function measureDownloadSpeed(
   outerSignal?: AbortSignal
@@ -150,15 +140,6 @@ function formatCompact(num: number): string {
   return `${(num / 1000000).toFixed(1).replace(/\.0$/, '')}M+`;
 }
 
-function formatBytesToMB(bytes: number): string {
-  if (bytes === 0) return '0.00 MB';
-  const mb = bytes / (1024 * 1024);
-  if (mb < 0.01) return '< 0.01 MB';
-  return `${mb.toFixed(2)} MB`;
-}
-
-
-
 export default function NetworkScreen() {
   const [state, setState] = useState<NetInfoState | null>(null);
   const [publicIp, setPublicIp] = useState('--');
@@ -173,49 +154,6 @@ export default function NetworkScreen() {
   const [dataUsage, setDataUsage] = useState<DataUsageStats>(dataUsageTracker.getStats());
   const isFocused = useIsFocused();
 
-  // Phone Storage Usage state
-  const [storageSize, setStorageSize] = useState(0);
-
-  const fetchStorageSize = useCallback(async () => {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const pairs = await AsyncStorage.multiGet(keys);
-      let total = 0;
-      for (const [key, val] of pairs) {
-        if (val) {
-          total += key.length + val.length;
-        }
-      }
-      setStorageSize(total);
-    } catch {
-      setStorageSize(0);
-    }
-  }, []);
-
-  const handleClearAppData = useCallback(() => {
-    Alert.alert(
-      'Clear App Storage?',
-      'This will delete all background diagnostic logs, data usage history, and restore preferences to default.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear All',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.clear();
-              dataUsageTracker.reset();
-              await fetchStorageSize();
-              Alert.alert('Data Cleared', 'All local app storage has been reset.');
-            } catch {
-              Alert.alert('Error', 'Failed to clear app storage.');
-            }
-          },
-        },
-      ]
-    );
-  }, [fetchStorageSize]);
-
   useEffect(() => {
     return dataUsageTracker.subscribe(() => {
       setDataUsage(dataUsageTracker.getStats());
@@ -227,14 +165,8 @@ export default function NetworkScreen() {
   useEffect(() => {
     if (isFocused) {
       setDataUsage(dataUsageTracker.getStats());
-      fetchStorageSize();
     }
-  }, [isFocused, fetchStorageSize]);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleResetDataUsage = useCallback(() => {
-    dataUsageTracker.reset();
-  }, []);
+  }, [isFocused]);
 
   // Live connection state
   useEffect(() => {
@@ -448,69 +380,17 @@ export default function NetworkScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Speed Test Card ──────────────────────────────── */}
-      { /* <View style={styles.speedTestCard}>
-        <View style={[styles.decorGlow, styles.decorGlowTopRight]} />
-        <View style={[styles.decorGlow, styles.decorGlowBottomLeft]} />
-
-        <Text style={[gs.labelCaps, { color: Colors.outline, marginBottom: 20 }]}>
-          Speed Test
-        </Text>
-
-        <TouchableOpacity style={styles.goButton} activeOpacity={0.85}>
-          <Text style={styles.goText}>GO</Text>
-        </TouchableOpacity>
-
-        <View style={styles.serverInfo}>
-          <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>
-            Server: NY, USA (Optimal)
-          </Text>
-          <TouchableOpacity>
-            <Text style={[gs.labelCaps, { color: Colors.primary, marginTop: 4 }]}>
-              Change Server
-            </Text>
-          </TouchableOpacity>
-        </View>
-      < /View> */}
-
-      {/* ── Network Quality Card ─────────────────────────── */}
-      {/* <DataCard title="Network Quality" icon="network-check" glass>
-        <View style={styles.qualityContent}>
-          <CircularProgress
-            progress={92}
-            size={80}
-            strokeWidth={6}
-            color={Colors.tertiary}
-            subLabel="SCORE"
-          />
-          <View style={styles.qualityMetrics}>
-            <QualityRow label="Avg Ping" value="14 ms" color={Colors.secondaryContainer} />
-            <QualityRow label="Jitter" value="2 ms" color={Colors.tertiary} bordered />
-            <QualityRow label="Loss" value="0.0%" color={Colors.onSurface} bordered />
-          </View>
-        </View>
-      </DataCard> */}
-
       {/* ── Pinging Quality & Session Data Dashboard Card ────── */}
       <DataCard glass>
         {/* Header */}
         <View style={styles.dataUsageHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={gs.rowGap8}>
             <MaterialIcons name="network-check" size={18} color={Colors.tertiary} />
             <Text style={[gs.labelCaps, { color: Colors.outline }]}>
               Diagnostic Data
             </Text>
           </View>
-          {/* <TouchableOpacity
-            style={styles.resetBadge}
-            onPress={handleResetDataUsage}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="restart-alt" size={14} color={Colors.onSurfaceVariant} />
-            <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant, fontSize: 9 }]}>
-              RESET STATS
-            </Text>
-          </TouchableOpacity> */}
+          {/* Reset Stats */}
         </View>
 
         {/* Progression Circle & Request Counters Section */}
@@ -528,7 +408,7 @@ export default function NetworkScreen() {
             {/* Request Counters */}
             <View style={styles.requestMetricBox}>
               <View style={styles.requestMetricItem}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <View style={gs.rowGap4}>
                   <MaterialIcons name="send" size={12} color={Colors.primary} />
                   <Text style={[gs.labelCaps, { color: Colors.outline }]}>Sent</Text>
                 </View>
@@ -536,11 +416,11 @@ export default function NetworkScreen() {
               </View>
 
               <View style={styles.requestMetricItem}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <View style={gs.rowGap4}>
                   <MaterialIcons name="cancel" size={12} color={Colors.error} />
                   <Text style={[gs.labelCaps, { color: Colors.outline }]}>Lost</Text>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <View style={[gs.rowGap4, styles.baselineRow]}>
                   <Text style={[gs.headlineMd, { color: dataUsage.lostRequests > 0 ? Colors.error : Colors.onSurface }]}>
                     {formatCompact(dataUsage.lostRequests)}
                   </Text>
@@ -554,46 +434,14 @@ export default function NetworkScreen() {
         </View>
 
         {/* Divider */}
-        <View style={[gs.divider, { marginVertical: 12 }]} />
+        <View style={[gs.divider, styles.sectionDivider]} />
 
         {/* Status & Traffic Section */}
-        {(() => {
-          const isPingingActive = dataUsage.isPingingActive || monitoring;
-          return (
-            <View style={styles.sessionDataGrid}>
-              <View style={styles.sessionTile}>
-                <MaterialIcons
-                  name="wifi-tethering"
-                  size={18}
-                  color={isPingingActive ? Colors.tertiary : Colors.primary}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Pinging Status</Text>
-                  <Text
-                    style={[
-                      gs.codeLg,
-                      { color: isPingingActive ? Colors.tertiary : Colors.onSurface },
-                    ]}
-                  >
-                    {isPingingActive ? 'Active' : 'Idle'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.sessionTile}>
-                <MaterialIcons name="speed" size={18} color={Colors.secondaryContainer} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Speed Test</Text>
-                  <Text style={gs.codeLg}>Ready</Text>
-                </View>
-              </View>
-            </View>
-          );
-        })()}
+        <SessionStatusTiles isPingingActive={dataUsage.isPingingActive} />
 
         {/* Total App Data Volume Row */}
         <View style={styles.dataVolumeRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={gs.rowGap6}>
             <MaterialIcons name="data-usage" size={14} color={Colors.outline} />
             <Text style={[gs.labelCaps, { color: Colors.outline }]}>Total App Data Transferred</Text>
           </View>
@@ -601,26 +449,6 @@ export default function NetworkScreen() {
             {formatBytes(dataUsage.totalSentBytes + dataUsage.totalReceivedBytes)}
           </Text>
         </View>
-
-        {/* Phone Storage Usage Row */}
-        {/* <View style={[styles.dataVolumeRow, { marginTop: 8 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <MaterialIcons name="storage" size={14} color={Colors.outline} />
-            <Text style={[gs.labelCaps, { color: Colors.outline }]}>Phone Storage Usage</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={[gs.codeSm, { color: Colors.tertiary, fontWeight: '700' }]}>
-              {formatBytesToMB(storageSize)}
-            </Text>
-            <TouchableOpacity
-              onPress={handleClearAppData}
-              activeOpacity={0.7}
-              style={styles.inlineClearButton}
-            >
-              <Text style={styles.inlineClearButtonText}>CLEAR</Text>
-            </TouchableOpacity>
-          </View>
-        </View> */}
       </DataCard>
     </ScrollView>
   );
@@ -633,6 +461,43 @@ const MetricItem = React.memo(function MetricItem({ label, value }: { label: str
     <View style={styles.metricItem}>
       <Text style={[gs.labelCaps, { color: Colors.outline, marginBottom: 2 }]}>{label}</Text>
       <Text style={gs.codeSm}>{value}</Text>
+    </View>
+  );
+});
+
+const SessionStatusTiles = React.memo(function SessionStatusTiles({
+  isPingingActive,
+}: {
+  isPingingActive: boolean;
+}) {
+  return (
+    <View style={styles.sessionDataGrid}>
+      <View style={styles.sessionTile}>
+        <MaterialIcons
+          name="wifi-tethering"
+          size={18}
+          color={isPingingActive ? Colors.tertiary : Colors.primary}
+        />
+        <View style={styles.flex1}>
+          <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Pinging Status</Text>
+          <Text
+            style={[
+              gs.codeLg,
+              { color: isPingingActive ? Colors.tertiary : Colors.onSurface },
+            ]}
+          >
+            {isPingingActive ? 'Active' : 'Idle'}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.sessionTile}>
+        <MaterialIcons name="speed" size={18} color={Colors.secondaryContainer} />
+        <View style={styles.flex1}>
+          <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant }]}>Speed Test</Text>
+          <Text style={gs.codeLg}>Ready</Text>
+        </View>
+      </View>
     </View>
   );
 });
@@ -724,95 +589,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
 
-  // ── Speed Test Card ────────────────────────────────────
-  speedTestCard: {
-    backgroundColor: 'rgba(20, 27, 38, 0.6)',
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(31, 41, 55, 0.8)',
-    padding: Spacing.containerPadding,
-    alignItems: 'center',
-    minHeight: 300,
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  decorGlow: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    opacity: 0.1,
-  },
-  decorGlowTopRight: {
-    top: -40,
-    right: -40,
-    backgroundColor: Colors.primary,
-  },
-  decorGlowBottomLeft: {
-    bottom: -40,
-    left: -40,
-    backgroundColor: Colors.secondaryContainer,
-  },
-  goButton: {
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sectionMargin,
-    shadowColor: Colors.primary,
-    shadowOpacity: 0.2,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-  },
-  goText: {
-    ...Typography.headlineLg,
-    color: Colors.onPrimary,
-  },
-  serverInfo: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.outlineVariant,
-    paddingTop: Spacing.containerPadding,
-    alignItems: 'center',
-    width: '100%',
-  },
-
-  // ── Network Quality ────────────────────────────────────
-  qualityContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sectionMargin,
-    marginTop: 8,
-  },
-  qualityMetrics: {
-    flex: 1,
-  },
-  qualityRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-
   // ── Data Usage & Pinging Dashboard ───────────────────
   dataUsageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.containerPadding,
-  },
-  resetBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.surfaceContainerHighest,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
   },
   dataUsageContent: {
     flexDirection: 'row',
@@ -822,6 +604,19 @@ const styles = StyleSheet.create({
   },
   dataUsageText: {
     flex: 1,
+  },
+
+// ── Helpers ────────────────────────────────────────────────
+  flex1: {
+    flex: 1,
+  },
+  baselineRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  sectionDivider: {
+    marginVertical: 12,
   },
 
   // ── Request Counters Grid ──────────────────────────────
@@ -868,19 +663,5 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: Colors.outlineVariant,
-  },
-  inlineClearButton: {
-    backgroundColor: 'rgba(255, 180, 171, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.error,
-  },
-  inlineClearButtonText: {
-    color: Colors.error,
-    fontFamily: FontFamily.jetbrainsMono,
-    fontSize: 9,
-    fontWeight: '700',
   },
 });

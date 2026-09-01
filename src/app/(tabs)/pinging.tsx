@@ -7,6 +7,7 @@ import {
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
 import SettingsRow from '@/components/SettingsRow';
+import SimpleSelect from '@/components/SimpleSelect';
 import StatBox from '@/components/StatBox';
 import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
@@ -16,7 +17,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   AppState,
-  FlatList,
   Modal,
   ScrollView,
   StyleSheet,
@@ -26,77 +26,6 @@ import {
   View,
 } from 'react-native';
 import { InterstitialAd, AdEventType, TestIds } from '@/services/MobileAdsService';
-
-// ── SimpleSelect dropdown modal helper ───────────────────
-interface SimpleSelectProps {
-  options: string[];
-  selectedOption: string;
-  onSelect: (option: string) => void;
-}
-
-function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) {
-  const [modalVisible, setModalVisible] = useState(false);
-
-  return (
-    <>
-      <TouchableOpacity
-        style={styles.selectTrigger}
-        onPress={() => setModalVisible(true)}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.selectTriggerText}>{selectedOption}</Text>
-        <MaterialIcons name="arrow-drop-down" size={18} color={Colors.onSurfaceVariant} />
-      </TouchableOpacity>
-
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.selectModalOverlay}
-          activeOpacity={1}
-          onPress={() => setModalVisible(false)}
-        >
-          <View style={styles.selectModalContent}>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item}
-              initialNumToRender={8}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalOption,
-                    item === selectedOption && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => {
-                    onSelect(item);
-                    setModalVisible(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.modalOptionText,
-                      item === selectedOption && styles.modalOptionTextSelected,
-                    ]}
-                  >
-                    {item}
-                  </Text>
-                  {item === selectedOption && (
-                    <MaterialIcons name="check" size={18} color={Colors.primary} />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </>
-  );
-}
 
 // ── Pulse animation hook ─────────────────────────────────
 function usePulse() {
@@ -236,7 +165,7 @@ async function nativePing(host: string, timeoutMs: number): Promise<number | nul
       return res;
     }
     return null;
-  } catch (err: any) {
+  } catch {
     return null;
   }
 }
@@ -744,92 +673,6 @@ export default function PingingScreen() {
         </View>
       </View>
 
-      {/* ── Latency Graph ────────────────────────────────── */}
-      {/* <View style={styles.graphCard}>
-        <View style={styles.graphHeader}>
-          <Text style={gs.labelCaps}>LATENCY (LAST 60S)</Text>
-          <View style={styles.graphLegend}>
-            <View style={[styles.legendDot, { backgroundColor: Colors.tertiary }]} />
-            <View style={[styles.legendDot, { backgroundColor: Colors.warning }]} />
-            <View style={[styles.legendDot, { backgroundColor: Colors.error }]} />
-          </View>
-        </View>
-        <View style={styles.graphArea}>
-          
-          {[40, 42, 38, 45, 85, 41, 39, 42].map((val, i) => {
-            const isSpike = val > 60;
-            return (
-              <View
-                key={i}
-                style={[
-                  styles.graphBar,
-                  {
-                    height: `${val}%`,
-                    backgroundColor: isSpike
-                      ? 'rgba(255, 167, 38, 0.4)'
-                      : 'rgba(173, 198, 255, 0.2)',
-                  },
-                ]}
-              />
-            );
-          })}
-
-
-          <View style={[styles.thresholdLine, { bottom: '60%', borderColor: 'rgba(255, 167, 38, 0.3)' }]} />
-          <View style={[styles.thresholdLine, { bottom: '80%', borderColor: 'rgba(255, 180, 171, 0.3)' }]} />
-        </View>
-      </View> */}
-
-      {/* ── Recent Sessions ──────────────────────────────── */}
-      {/* <View style={styles.sessionsSection}>
-        <Text style={[gs.labelCaps, { marginBottom: 8 }]}>RECENT SESSIONS</Text>
-        <TouchableOpacity style={styles.sessionItem} activeOpacity={0.7}>
-          <View style={styles.sessionLeft}>
-            <View style={styles.sessionIcon}>
-              <MaterialIcons name="history" size={22} color={Colors.onSurface} />
-            </View>
-            <View>
-              <Text style={[gs.bodyMd, { fontWeight: '600', color: Colors.onSurface }]}>
-                Google DNS
-              </Text>
-              <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>
-                Today, 14:20
-              </Text>
-            </View>
-          </View>
-          <View style={styles.sessionRight}>
-            <Text style={[gs.codeSm, { color: Colors.primary }]}>Avg: 41ms</Text>
-            <View style={styles.sessionLoss}>
-              <Text style={gs.labelCaps}>Loss: 0%</Text>
-              <View style={[styles.legendDot, { backgroundColor: Colors.tertiary }]} />
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.sessionItem, { opacity: 0.7 }]} activeOpacity={0.7}>
-          <View style={styles.sessionLeft}>
-            <View style={styles.sessionIcon}>
-              <MaterialIcons name="sports-esports" size={22} color={Colors.onSurface} />
-            </View>
-            <View>
-              <Text style={[gs.bodyMd, { fontWeight: '600', color: Colors.onSurface }]}>
-                Game Server
-              </Text>
-              <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant }]}>
-                Yesterday, 21:05
-              </Text>
-            </View>
-          </View>
-          <View style={styles.sessionRight}>
-            <Text style={[gs.codeSm, { color: Colors.warning }]}>Avg: 112ms</Text>
-            <View style={styles.sessionLoss}>
-              <Text style={gs.labelCaps}>Loss: 2%</Text>
-              <View style={[styles.legendDot, { backgroundColor: Colors.warning }]} />
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View> */}
-
       {/* ── Ping Target & Timing Configuration Modal ──────────────── */}
       <Modal
         visible={configModalVisible}
@@ -1106,94 +949,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  // ── Latency Graph ──────────────────────────────────────
-  graphCard: {
-    backgroundColor: Colors.surfaceContainer,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    padding: Spacing.containerPadding,
-    height: 200,
-  },
-  graphHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  graphLegend: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  legendDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  graphArea: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 1,
-    backgroundColor: Colors.surfaceDim,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    overflow: 'hidden',
-    paddingHorizontal: 4,
-  },
-  graphBar: {
-    flex: 1,
-    borderTopLeftRadius: 1,
-    borderTopRightRadius: 1,
-  },
-  thresholdLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    borderTopWidth: 1,
-    borderStyle: 'dashed',
-  },
-
-  // ── Recent Sessions ────────────────────────────────────
-  sessionsSection: {
-    gap: 8,
-  },
-  sessionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.surfaceContainer,
-    borderRadius: BorderRadius.default,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    padding: Spacing.containerPadding,
-  },
-  sessionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  sessionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sessionRight: {
-    alignItems: 'flex-end',
-  },
-  sessionLoss: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-
   // ── Modal & Select Styles ──────────────────────────────
   cardModalContainer: {
     width: '90%',
@@ -1224,54 +979,6 @@ const styles = StyleSheet.create({
   cardTitle: {
     ...Typography.labelCaps,
     color: Colors.onSurface,
-  },
-  selectTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 4,
-  },
-  selectTriggerText: {
-    ...Typography.codeSm,
-    color: Colors.onSurface,
-  },
-  selectModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectModalContent: {
-    width: '80%',
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    paddingVertical: 8,
-    maxHeight: 300,
-  },
-  modalOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  modalOptionSelected: {
-    backgroundColor: Colors.surfaceBright,
-  },
-  modalOptionText: {
-    ...Typography.bodyMd,
-    color: Colors.onSurface,
-  },
-  modalOptionTextSelected: {
-    color: Colors.primary,
-    fontWeight: '600',
   },
   customHostWrap: {
     paddingVertical: 8,

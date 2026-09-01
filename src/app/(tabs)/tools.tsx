@@ -19,11 +19,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
 import { useRouter } from 'expo-router';
-import {
-  getBackgroundLogsAsync,
-  clearBackgroundLogsAsync,
-  type BackgroundLogEntry,
-} from '@/services/BackgroundTaskService';
 
 export interface IpHistoryEntry {
   id: string;
@@ -59,10 +54,6 @@ interface IpDetails {
 
 export default function ToolsScreen() {
   const router = useRouter();
-
-  // Background Pinging State
-  const [bgLogsModalVisible, setBgLogsModalVisible] = useState(false);
-  const [bgLogs, setBgLogs] = useState<BackgroundLogEntry[]>([]);
 
   // IP Tracking State
   const [ipModalVisible, setIpModalVisible] = useState(false);
@@ -107,29 +98,17 @@ export default function ToolsScreen() {
     } catch {}
   };
 
-  const handleOpenBgLogs = async () => {
-    const logs = await getBackgroundLogsAsync();
-    setBgLogs(logs);
-    setBgLogsModalVisible(true);
-  };
-
-  const handleClearBgLogs = async () => {
-    await clearBackgroundLogsAsync();
-    setBgLogs([]);
-    Alert.alert('Logs Cleared', 'Background diagnostic logs have been reset.');
-  };
-
-  const handleOpenIpHistory = async () => {
-    await loadIpHistory();
-    setIpHistoryModalVisible(true);
-  };
-
   const handleClearIpHistory = async () => {
     try {
       await AsyncStorage.removeItem(IP_HISTORY_STORAGE_KEY);
       setIpHistory([]);
       Alert.alert('History Cleared', 'Tracked IP history has been reset.');
     } catch {}
+  };
+
+  const handleOpenIpHistory = async () => {
+    await loadIpHistory();
+    setIpHistoryModalVisible(true);
   };
 
   const handleSelectHistoryItem = (item: IpHistoryEntry) => {
@@ -252,24 +231,6 @@ export default function ToolsScreen() {
           </View>
           <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
         </TouchableOpacity>
-
-        {/* Background Logs */}
-        {/* <TouchableOpacity
-          style={[styles.actionRow, styles.rowBorder]}
-          onPress={handleOpenBgLogs}
-          activeOpacity={0.7}
-        >
-          <View style={styles.actionLeft}>
-            <MaterialIcons name="history" size={20} color={Colors.tertiary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.actionText}>Background Diagnostic Logs</Text>
-              <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
-                View periodic latency & disconnect events
-              </Text>
-            </View>
-          </View>
-          <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
-        </TouchableOpacity> */}
       </View>
 
       {/* ── CARD 2: SETTINGS ───────────────────────────── */}
@@ -307,88 +268,6 @@ export default function ToolsScreen() {
         <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginBottom: 14 }]}>
           Advanced network diagnostic tools currently under development by Solarfox:
         </Text>
-
-        <View style={styles.upcomingGrid}>
-          {/* Port Scanner */}
-          {/* <View style={styles.upcomingItem}>
-            <View style={styles.upcomingHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name="radar" size={18} color={Colors.primary} />
-                <Text style={styles.upcomingTitle}>Port Scanner</Text>
-              </View>
-              <View style={styles.comingSoonBadge}>
-                <Text style={styles.comingSoonText}>SOON</Text>
-              </View>
-            </View>
-            <Text style={styles.upcomingDesc}>
-              Scan active TCP ports (80, 443, 22, 21, 8080) to detect open services and security exposures.
-            </Text>
-          </View> */}
-
-          {/* DNS & WHOIS Lookup */}
-          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
-            <View style={styles.upcomingHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name="dns" size={18} color={Colors.secondary} />
-                <Text style={styles.upcomingTitle}>DNS & WHOIS Query</Text>
-              </View>
-              <View style={styles.comingSoonBadge}>
-                <Text style={styles.comingSoonText}>SOON</Text>
-              </View>
-            </View>
-            <Text style={styles.upcomingDesc}>
-              Query A, AAAA, MX, NS & TXT records, authoritative name servers, and domain WHOIS info.
-            </Text>
-          </View> */}
-
-          {/* Traceroute & Hops */}
-          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
-            <View style={styles.upcomingHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name="alt-route" size={18} color={Colors.tertiary} />
-                <Text style={styles.upcomingTitle}>Traceroute & Hop Analysis</Text>
-              </View>
-              <View style={styles.comingSoonBadge}>
-                <Text style={styles.comingSoonText}>SOON</Text>
-              </View>
-            </View>
-            <Text style={styles.upcomingDesc}>
-              Trace hop-by-hop packet routing paths and pinpoint intermediate network latency spikes.
-            </Text>
-          </View> */}
-
-          {/* SSL Cert Inspector */}
-          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
-            <View style={styles.upcomingHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name="lock" size={18} color={Colors.warning} />
-                <Text style={styles.upcomingTitle}>SSL Cert Inspector</Text>
-              </View>
-              <View style={styles.comingSoonBadge}>
-                <Text style={styles.comingSoonText}>SOON</Text>
-              </View>
-            </View>
-            <Text style={styles.upcomingDesc}>
-              Inspect SSL/TLS expiration dates, Certificate Authority (CA) chains, and cipher algorithms.
-            </Text>
-          </View> */}
-
-          {/* Wi-Fi Channel Analyzer */}
-          {/* <View style={[styles.upcomingItem, styles.rowBorder]}>
-            <View style={styles.upcomingHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name="wifi-find" size={18} color={Colors.error} />
-                <Text style={styles.upcomingTitle}>Wi-Fi Channel Analyzer</Text>
-              </View>
-              <View style={styles.comingSoonBadge}>
-                <Text style={styles.comingSoonText}>SOON</Text>
-              </View>
-            </View>
-            <Text style={styles.upcomingDesc}>
-              Evaluate Wi-Fi channel frequency congestion, RSSI signal strength, and access point metrics.
-            </Text>
-          </View> */}
-        </View>
       </View>
 
       {/* ── IP TRACKING MODAL ────────────────────────────── */}
@@ -617,79 +496,6 @@ export default function ToolsScreen() {
         </View>
       </Modal>
 
-      {/* ── BACKGROUND LOGS MODAL ─────────────────────────── */}
-      <Modal
-        visible={bgLogsModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setBgLogsModalVisible(false)}
-      >
-        <View style={styles.fullModalOverlay}>
-          <View style={styles.fullModalContent}>
-            <View style={styles.modalHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <MaterialIcons name="history" size={22} color={Colors.tertiary} />
-                <Text style={styles.modalTitle}>Background Diagnostics</Text>
-              </View>
-              <TouchableOpacity onPress={() => setBgLogsModalVisible(false)}>
-                <MaterialIcons name="close" size={22} color={Colors.onSurfaceVariant} />
-              </TouchableOpacity>
-            </View>
-
-            {bgLogs.length === 0 ? (
-              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-                <MaterialIcons name="history-toggle-off" size={48} color={Colors.outline} />
-                <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 12 }]}>
-                  No background diagnostic logs recorded yet.
-                </Text>
-              </View>
-            ) : (
-              <FlatList
-                data={bgLogs}
-                keyExtractor={(item) => item.id}
-                style={{ marginTop: 12, maxHeight: 380 }}
-                initialNumToRender={8}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                removeClippedSubviews={true}
-                renderItem={({ item }) => (
-                  <View style={styles.bgLogItem}>
-                    <View style={styles.bgLogHeader}>
-                      <Text style={[gs.codeSm, { color: Colors.primary }]}>{item.timestamp}</Text>
-                      <View style={[styles.statusTag, { backgroundColor: item.status === 'SUCCESS' ? 'rgba(120,220,119,0.15)' : 'rgba(255,59,48,0.15)' }]}>
-                        <Text style={[styles.statusTagText, { color: item.status === 'SUCCESS' ? Colors.tertiary : Colors.error }]}>
-                          {item.status}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={[gs.bodyMd, { color: Colors.onSurface, marginTop: 4 }]}>
-                      Target: {item.host} ({item.networkType})
-                    </Text>
-                    <Text style={[gs.codeSm, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
-                      Latency: {item.latencyMs} ms
-                    </Text>
-                  </View>
-                )}
-              />
-            )}
-
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
-              <TouchableOpacity
-                style={[gs.btnSecondary, { flex: 1 }]}
-                onPress={handleClearBgLogs}
-              >
-                <Text style={gs.btnSecondaryText}>Clear Logs</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1 }]}
-                onPress={() => setBgLogsModalVisible(false)}
-              >
-                <Text style={gs.btnPrimaryText}>Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -736,45 +542,6 @@ const styles = StyleSheet.create({
   rowBorder: {
     borderTopWidth: 1,
     borderTopColor: Colors.outlineVariant,
-  },
-
-  // ── Upcoming Tools ─────────────────────────────────────
-  upcomingGrid: {
-    marginTop: 4,
-  },
-  upcomingItem: {
-    paddingVertical: 12,
-  },
-  upcomingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  upcomingTitle: {
-    ...Typography.bodyMd,
-    fontWeight: '600',
-    color: Colors.onSurface,
-  },
-  upcomingDesc: {
-    ...Typography.bodyMd,
-    fontSize: 12,
-    lineHeight: 17,
-    color: Colors.onSurfaceVariant,
-  },
-  comingSoonBadge: {
-    backgroundColor: 'rgba(255, 167, 38, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 167, 38, 0.3)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  comingSoonText: {
-    ...Typography.labelCaps,
-    fontSize: 9,
-    fontWeight: '800',
-    color: Colors.warning,
   },
 
   // ── IP Tracking UI ─────────────────────────────────────
@@ -914,31 +681,6 @@ const styles = StyleSheet.create({
     color: Colors.onSurface,
     fontWeight: '600',
     marginTop: 2,
-  },
-
-  // ── Background Logs Items ──────────────────────────────
-  bgLogItem: {
-    backgroundColor: Colors.surfaceContainerLow,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    padding: 10,
-    marginBottom: 8,
-  },
-  bgLogHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statusTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  statusTagText: {
-    ...Typography.labelCaps,
-    fontSize: 9,
-    fontWeight: '700',
   },
 
   fullModalOverlay: {

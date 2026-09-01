@@ -102,10 +102,7 @@ class NetPlusPingModule : Module() {
   }
 
   private fun runPing(rawHost: String, timeoutMs: Int): Double? {
-    val cleanHost = rawHost.trim()
-      .replace(Regex("""^https?://""", RegexOption.IGNORE_CASE), "")
-      .split("/")[0]
-      .split(":")[0]
+    val cleanHost = NetPlusPingForegroundService.cleanHost(rawHost)
 
     if (cleanHost.isEmpty()) return null
 
@@ -130,15 +127,13 @@ class NetPlusPingModule : Module() {
 
       val output = process.inputStream.bufferedReader().use { it.readText() }
 
-      val timeRegex = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
-      val timeMatch = timeRegex.find(output)
+      val timeMatch = NetPlusPingForegroundService.TIME_REGEX.find(output)
       if (timeMatch != null) {
         val valMs = timeMatch.groupValues[1].toDoubleOrNull()
         if (valMs != null && valMs > 0) return valMs
       }
 
-      val rttRegex = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
-      val rttMatch = rttRegex.find(output)
+      val rttMatch = NetPlusPingForegroundService.RTT_REGEX.find(output)
       val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
       if (rttMs != null && rttMs > 0) return rttMs
 

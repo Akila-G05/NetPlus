@@ -51,11 +51,12 @@ class DataUsageTracker {
   private isPingingActive = false;
 
   // Diagnostic Ping Request Counters
-  private sentRequests = 1420;
-  private receivedRequests = 1398;
-  private lostRequests = 22;
+  private sentRequests = 0;
+  private receivedRequests = 0;
+  private lostRequests = 0;
 
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Public API ─────────────────────────────────────────
 
@@ -241,7 +242,16 @@ class DataUsageTracker {
       this.currentSession.sentBytes += sent;
       this.currentSession.receivedBytes += received;
     }
-    this.notifyListeners();
+    this.notifyListenersDebounced();
+  }
+
+  // High-frequency network events are debounced to avoid a re-render storm.
+  private notifyListenersDebounced() {
+    if (this.notifyTimer) return;
+    this.notifyTimer = setTimeout(() => {
+      this.notifyTimer = null;
+      this.notifyListeners();
+    }, 100);
   }
 
   private notifyListeners() {

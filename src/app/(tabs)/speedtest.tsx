@@ -19,10 +19,9 @@ import {
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { MaterialIcons } from '@expo/vector-icons';
-import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { Colors, FontFamily, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import { Colors, FontFamily, Spacing, BorderRadius } from '@/constants/theme';
 import { notificationService } from '@/services/NotificationService';
 import { gs } from '@/styles/globalStyles';
 
@@ -132,10 +131,6 @@ export default function SpeedTestScreen() {
   const [downloadResult, setDownloadResult] = useState<number | null>(null);
   const [uploadResult, setUploadResult] = useState<number | null>(null);
 
-  // Connection info
-  const [netState, setNetState] = useState<NetInfoState | null>(null);
-  const [publicIp, setPublicIp] = useState<string>('112.134.45.89');
-
   // Server selection
   const [selectedServer, setSelectedServer] = useState<SpeedTestServer>(SPEED_TEST_SERVERS[0]);
   const [lastSelectedServerName, setLastSelectedServerName] = useState<string | null>(null);
@@ -186,26 +181,7 @@ export default function SpeedTestScreen() {
       .catch(() => {});
   }, []);
 
-  // ── Connection Details ────────────────────────────────────────────
-  useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener((state) => {
-      setNetState(state);
-    });
-
-    NetInfo.fetch().then(setNetState);
-
-    // Fetch Public IP
-    fetch('https://api.ipify.org?format=json')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.ip) setPublicIp(data.ip);
-      })
-      .catch(() => {});
-
-    return () => unsubscribe();
-  }, []);
-
-  // Pulse Animation Effect
+  // ── Pulse Animation Effect ────────────────────────────────────────────
   useEffect(() => {
     if (testPhase !== 'idle' && testPhase !== 'completed') {
       const animation = Animated.loop(

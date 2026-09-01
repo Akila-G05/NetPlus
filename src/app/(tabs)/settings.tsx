@@ -13,96 +13,22 @@ import {
   ScrollView,
   StyleSheet,
   Modal,
-  FlatList,
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { gs } from '@/styles/globalStyles';
-import SettingsRow, { SettingsToggle } from '@/components/SettingsRow';
+import { SettingsToggle } from '@/components/SettingsRow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import { useRouter } from 'expo-router';
 
 import { notificationService } from '@/services/NotificationService';
 
-interface SimpleSelectProps {
-  options: string[];
-  selectedOption: string;
-  onSelect: (option: string) => void;
-}
-
-function SimpleSelect({ options, selectedOption, onSelect }: SimpleSelectProps) {
-  const [modalVisible, setModalVisible] = useState(false);
-
-  return (
-    <>
-      <TouchableOpacity
-        style={styles.selectTrigger}
-        onPress={() => setModalVisible(true)}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.selectTriggerText}>{selectedOption}</Text>
-        <MaterialIcons name="arrow-drop-down" size={18} color={Colors.onSurfaceVariant} />
-      </TouchableOpacity>
-
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setModalVisible(false)}
-        >
-          <View style={styles.modalContent}>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item}
-              initialNumToRender={8}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalOption,
-                    item === selectedOption && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => {
-                    onSelect(item);
-                    setModalVisible(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.modalOptionText,
-                      item === selectedOption && styles.modalOptionTextSelected,
-                    ]}
-                  >
-                    {item}
-                  </Text>
-                  {item === selectedOption && (
-                    <MaterialIcons name="check" size={18} color={Colors.primary} />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </>
-  );
-}
-
 export default function SettingsScreen() {
   const router = useRouter();
 
   // General Preferences State
-  const [_theme, _setTheme] = useState('Dark Mode');
-  const [_language, _setLanguage] = useState('English (US)');
-  const [dataUnits, setDataUnits] = useState('Mbps');
   const [pushNotifications, setPushNotifications] = useState(true);
   const [autoSaveLogs, setAutoSaveLogs] = useState(true);
 
@@ -137,9 +63,6 @@ export default function SettingsScreen() {
 
   // App Reset Handler
   const handleResetApp = async () => {
-    _setTheme('Dark Mode');
-    _setLanguage('English (US)');
-    setDataUnits('Mbps');
     setPushNotifications(true);
     notificationService.setNotificationsEnabled(true);
     setAutoSaveLogs(true);
@@ -173,7 +96,7 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={gs.screenContainer}
-      contentContainerStyle={[gs.scrollContent, { paddingBottom: 40 }]}
+      contentContainerStyle={[gs.scrollContent, styles.topPadding]}
       showsVerticalScrollIndicator={false}
     >
       {/* Page Header with Back Navigation */}
@@ -185,11 +108,8 @@ export default function SettingsScreen() {
         >
           <MaterialIcons name="arrow-back" size={22} color={Colors.onSurface} />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
+        <View style={styles.flex1}>
           <Text style={gs.headlineLg}>Settings & Preferences</Text>
-          {/* <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 2 }]}>
-            Application preferences, privacy policy, and system options.
-          </Text> */}
         </View>
       </View>
 
@@ -199,14 +119,6 @@ export default function SettingsScreen() {
           <MaterialIcons name="tune" size={20} color={Colors.primary} />
           <Text style={styles.cardTitle}>GENERAL PREFERENCES</Text>
         </View>
-
-        {/* <SettingsRow label="Data Units" bordered>
-          <SimpleSelect
-            options={['Mbps', 'MB/s', 'Kbps']}
-            selectedOption={dataUnits}
-            onSelect={setDataUnits}
-          />
-        </SettingsRow> */}
 
         <SettingsToggle
           label="Push Notifications"
@@ -345,24 +257,6 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* ── PRO ACCOUNT BANNER ────────────────────────────── */}
-      {/* <View style={[styles.card, styles.proCard]}>
-        <View style={styles.proHeader}>
-          <MaterialIcons name="workspace-premium" size={22} color={Colors.secondaryContainer} />
-          <Text style={styles.proTitle}>NETPULSE PRO</Text>
-        </View>
-        <Text style={[gs.bodyMd, { color: Colors.onSurface, marginVertical: 12 }]}>
-          Unlock advanced route tracing, continuous background ping logs, and custom proxy protocol tools.
-        </Text>
-        <TouchableOpacity
-          style={gs.btnPrimary}
-          activeOpacity={0.8}
-          onPress={() => Alert.alert('NetPulse Pro', 'You are running the full developer edition of NetPulse by Solarfox.')}
-        >
-          <Text style={gs.btnPrimaryText}>Upgrade to Pro</Text>
-        </TouchableOpacity>
-      </View> */}
-
       {/* ── PRIVACY POLICY MODAL ─────────────────────────── */}
       <Modal
         visible={privacyModalVisible}
@@ -373,10 +267,10 @@ export default function SettingsScreen() {
         <View style={styles.fullModalOverlay}>
           <View style={styles.fullModalContent}>
             <View style={styles.modalHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <MaterialIcons name="security" size={22} color={Colors.primary} />
-                <Text style={styles.modalTitle}>Privacy Policy</Text>
-              </View>
+            <View style={gs.rowGap8}>
+              <MaterialIcons name="security" size={22} color={Colors.primary} />
+              <Text style={styles.modalTitle}>Privacy Policy</Text>
+            </View>
               <TouchableOpacity onPress={() => setPrivacyModalVisible(false)}>
                 <MaterialIcons name="close" size={22} color={Colors.onSurfaceVariant} />
               </TouchableOpacity>
@@ -405,7 +299,7 @@ export default function SettingsScreen() {
             </ScrollView>
 
             <TouchableOpacity
-              style={[gs.btnPrimary, { marginTop: 16 }]}
+              style={[gs.btnPrimary, styles.btnTopGap]}
               onPress={() => setPrivacyModalVisible(false)}
             >
               <Text style={gs.btnPrimaryText}>Close Privacy Policy</Text>
@@ -423,7 +317,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.dialogContent}>
-            <MaterialIcons name="stars" size={40} color={Colors.warning} style={{ alignSelf: 'center' }} />
+            <MaterialIcons name="stars" size={40} color={Colors.warning} style={styles.centerSelf} />
             <Text style={styles.dialogTitle}>Enjoying NetPulse?</Text>
             <Text style={styles.dialogSub}>
               Tap a star to rate your experience with NetPulse by Solarfox.
@@ -456,14 +350,14 @@ export default function SettingsScreen() {
 
             <View style={styles.dialogButtonRow}>
               <TouchableOpacity
-                style={[gs.btnSecondary, { flex: 1 }]}
+                style={[gs.btnSecondary, styles.flex1]}
                 onPress={() => setRateModalVisible(false)}
               >
                 <Text style={gs.btnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[gs.btnPrimary, { flex: 1 }]}
+                style={[gs.btnPrimary, styles.flex1]}
                 onPress={handleRatingSubmit}
               >
                 <Text style={gs.btnPrimaryText}>{ratedSubmitted ? 'Submitting...' : 'Submit Rating'}</Text>
@@ -482,7 +376,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.dialogContent}>
-            <MaterialIcons name="warning" size={40} color={Colors.error} style={{ alignSelf: 'center' }} />
+            <MaterialIcons name="warning" size={40} color={Colors.error} style={styles.centerSelf} />
             <Text style={styles.dialogTitle}>Reset App Settings?</Text>
             <Text style={styles.dialogSub}>
               This will restore all general preferences, ping options, speed test units, and cached logs to factory default values.
@@ -490,14 +384,14 @@ export default function SettingsScreen() {
 
             <View style={styles.dialogButtonRow}>
               <TouchableOpacity
-                style={[gs.btnSecondary, { flex: 1 }]}
+                style={[gs.btnSecondary, styles.flex1]}
                 onPress={() => setResetModalVisible(false)}
               >
                 <Text style={gs.btnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[gs.btnDanger, { flex: 1 }]}
+                style={[gs.btnDanger, styles.flex1]}
                 onPress={handleResetApp}
               >
                 <Text style={gs.btnDangerText}>Reset All</Text>
@@ -517,10 +411,10 @@ export default function SettingsScreen() {
         <View style={styles.fullModalOverlay}>
           <View style={styles.fullModalContent}>
             <View style={styles.modalHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <MaterialIcons name="description" size={22} color={Colors.secondary} />
-                <Text style={styles.modalTitle}>Terms of Service</Text>
-              </View>
+            <View style={gs.rowGap8}>
+              <MaterialIcons name="description" size={22} color={Colors.secondary} />
+              <Text style={styles.modalTitle}>Terms of Service</Text>
+            </View>
               <TouchableOpacity onPress={() => setTermsModalVisible(false)}>
                 <MaterialIcons name="close" size={22} color={Colors.onSurfaceVariant} />
               </TouchableOpacity>
@@ -549,7 +443,7 @@ export default function SettingsScreen() {
             </ScrollView>
 
             <TouchableOpacity
-              style={[gs.btnPrimary, { marginTop: 16 }]}
+              style={[gs.btnPrimary, styles.btnTopGap]}
               onPress={() => setTermsModalVisible(false)}
             >
               <Text style={gs.btnPrimaryText}>Accept & Close</Text>
@@ -562,6 +456,20 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  // ── Helpers ─────────────────────────────────────────────
+  flex1: {
+    flex: 1,
+  },
+  centerSelf: {
+    alignSelf: 'center',
+  },
+  btnTopGap: {
+    marginTop: 16,
+  },
+  topPadding: {
+    paddingBottom: 40,
+  },
+
   pageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -709,55 +617,13 @@ const styles = StyleSheet.create({
     color: Colors.onSurface,
   },
 
-  // Pro Banner
-  proCard: {
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderColor: Colors.outlineVariant,
-  },
-  proHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  proTitle: {
-    ...Typography.labelCaps,
-    color: Colors.secondaryContainer,
-  },
-
-  // Modal Overlay & Select Modals
+  // Modal Overlay
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-  },
-  modalContent: {
-    width: '85%',
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    paddingVertical: 8,
-    maxHeight: 320,
-  },
-  modalOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  modalOptionSelected: {
-    backgroundColor: Colors.surfaceBright,
-  },
-  modalOptionText: {
-    ...Typography.bodyMd,
-    color: Colors.onSurface,
-  },
-  modalOptionTextSelected: {
-    color: Colors.primary,
-    fontWeight: '600',
   },
 
   // Full Screen Policy / Terms Modals

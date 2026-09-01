@@ -58,9 +58,5 @@
       "typedRoutes": true,
       "reactCompiler": true
     }
-  },
-  "react-native-google-mobile-ads": {
-    "android_app_id": "ca-app-pub-5784306310827332~3904139844",
-    "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
   }
 }

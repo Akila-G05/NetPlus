@@ -22,6 +22,21 @@ export const gs = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  rowGap4: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+  },
+  rowGap6: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+  },
+  rowGap8: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+  },
   column: {
     flexDirection: 'column',
   },

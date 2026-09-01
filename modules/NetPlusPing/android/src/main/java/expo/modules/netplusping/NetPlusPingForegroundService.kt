@@ -36,6 +36,17 @@ class NetPlusPingForegroundService : Service() {
         const val EXTRA_TITLE = "EXTRA_TITLE"
         const val EXTRA_BODY = "EXTRA_BODY"
 
+        internal val SCHEME_REGEX = Regex("""^https?://""", RegexOption.IGNORE_CASE)
+        internal val TIME_REGEX = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
+        internal val RTT_REGEX = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
+
+        fun cleanHost(rawHost: String): String {
+            return rawHost.trim()
+                .replace(SCHEME_REGEX, "")
+                .split("/")[0]
+                .split(":")[0]
+        }
+
         // Shared module listener
         var listener: ((String, Int, Int, Int, Int) -> Unit)? = null
 
@@ -117,6 +128,10 @@ class NetPlusPingForegroundService : Service() {
         }
     }
 
+    private var lastNotificationTs = 0L
+    private var lastNotifiedTitle = ""
+    private var lastNotifiedBody = ""
+
     private fun startMonitoring(
         host: String,
         intervalMs: Long,
@@ -127,9 +142,13 @@ class NetPlusPingForegroundService : Service() {
         pingJob?.cancel()
         resetStats()
         isRunning = true
+        lastNotificationTs = 0L
+        lastNotifiedTitle = ""
+        lastNotifiedBody = ""
 
         pingJob = serviceScope.launch {
             while (isActive && isRunning) {
+                ensureWakeLockHeld()
                 val startTime = System.currentTimeMillis()
                 val latency = if (method.equals("icmp", ignoreCase = true)) {
                     runNativePing(host, timeoutMs) ?: runHttpPing(host, timeoutMs)
@@ -147,12 +166,12 @@ class NetPlusPingForegroundService : Service() {
 
                     val avg = (sumMs / recvCount).toInt()
                     val latencyInt = latency.toInt()
-                    updateNotification(title, "Pinging $host | Latency: ${latencyInt} ms (avg ${avg} ms)")
+                    updateNotificationThrottled(title, "Pinging $host | Latency: ${latencyInt} ms (avg ${avg} ms)")
                     listener?.invoke(host, latencyInt, sentCount, recvCount, failCount)
                 } else {
                     failCount++
                     lastLatencyMs = -1.0
-                    updateNotification(title, "Pinging $host | Timeout / Failed")
+                    updateNotificationThrottled(title, "Pinging $host | Timeout / Failed")
                     listener?.invoke(host, -1, sentCount, recvCount, failCount)
                 }
 
@@ -161,6 +180,16 @@ class NetPlusPingForegroundService : Service() {
                 delay(sleepTime)
             }
         }
+    }
+
+    private fun updateNotificationThrottled(title: String, body: String) {
+        val now = System.currentTimeMillis()
+        if (title == lastNotifiedTitle && body == lastNotifiedBody) return
+        if (now - lastNotificationTs < 1000) return
+        lastNotificationTs = now
+        lastNotifiedTitle = title
+        lastNotifiedBody = body
+        updateNotification(title, body)
     }
 
     private fun stopMonitoring() {
@@ -180,10 +209,7 @@ class NetPlusPingForegroundService : Service() {
     }
 
     private fun runNativePing(rawHost: String, timeoutMs: Int): Double? {
-        val cleanHost = rawHost.trim()
-            .replace(Regex("""^https?://""", RegexOption.IGNORE_CASE), "")
-            .split("/")[0]
-            .split(":")[0]
+        val cleanHost = cleanHost(rawHost)
 
         if (cleanHost.isEmpty()) return null
 
@@ -208,15 +234,13 @@ class NetPlusPingForegroundService : Service() {
 
             val output = process.inputStream.bufferedReader().use { it.readText() }
 
-            val timeRegex = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
-            val timeMatch = timeRegex.find(output)
+            val timeMatch = TIME_REGEX.find(output)
             if (timeMatch != null) {
                 val valMs = timeMatch.groupValues[1].toDoubleOrNull()
                 if (valMs != null && valMs > 0) return valMs
             }
 
-            val rttRegex = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
-            val rttMatch = rttRegex.find(output)
+            val rttMatch = RTT_REGEX.find(output)
             val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
             if (rttMs != null && rttMs > 0) return rttMs
 
@@ -231,10 +255,7 @@ class NetPlusPingForegroundService : Service() {
     }
 
     private fun runHttpPing(rawHost: String, timeoutMs: Int): Double? {
-        val cleanHost = rawHost.trim()
-            .replace(Regex("""^https?://""", RegexOption.IGNORE_CASE), "")
-            .split("/")[0]
-            .split(":")[0]
+        val cleanHost = cleanHost(rawHost)
 
         var targetUrlStr = "https://$cleanHost/"
         if (cleanHost == "8.8.8.8" || cleanHost == "8.8.4.4" || cleanHost.contains("google")) {
@@ -295,11 +316,16 @@ class NetPlusPingForegroundService : Service() {
     }
 
     private fun acquireWakeLock() {
-        if (wakeLock == null) {
-            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
-            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NetPlus::ContinuousPingWakeLock")
+        releaseWakeLock()
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NetPlus::ContinuousPingWakeLock")
+        wakeLock?.acquire(30 * 60 * 1000L) // 30 min timeout; re-acquired each cycle
+    }
+
+    private fun ensureWakeLockHeld() {
+        if (wakeLock?.isHeld != true) {
+            acquireWakeLock()
         }
-        wakeLock?.acquire(10 * 60 * 1000L) // 10 mins timeout safety
     }
 
     private fun releaseWakeLock() {

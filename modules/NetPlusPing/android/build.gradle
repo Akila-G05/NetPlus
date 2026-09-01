@@ -34,4 +34,6 @@ def safeExtGet(prop, fallback) {
 dependencies {
   implementation project(':expo-modules-core')
   implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android"
+  implementation "androidx.core:core-ktx"
 }

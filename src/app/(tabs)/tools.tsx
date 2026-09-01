@@ -2,23 +2,23 @@
  * Tools Tab — Network utilities, IP tracking, settings navigation, and upcoming diagnostic suites.
  * Developed by Solarfox.
  */
+import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
+import { gs } from '@/styles/globalStyles';
+import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
+  Alert,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Modal,
-  FlatList,
-  Alert,
+  View,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
-import { gs } from '@/styles/globalStyles';
-import { useRouter } from 'expo-router';
 
 export interface IpHistoryEntry {
   id: string;
@@ -37,6 +37,45 @@ export interface IpHistoryEntry {
 }
 
 const IP_HISTORY_STORAGE_KEY = '@netplus/ip_history';
+
+const IP_PRESETS = [
+  { label: '8.8.8.8 · Google', host: '8.8.8.8' },
+  { label: '1.1.1.1 · Cloudflare', host: '1.1.1.1' },
+  { label: 'google.com', host: 'google.com' },
+  { label: 'microsoft.com', host: 'microsoft.com' },
+];
+
+function isIpAddress(value: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(':');
+}
+
+async function resolveHostToIp(host: string): Promise<string> {
+  const name = host.trim().replace(/\.+$/, '');
+  if (!name) throw new Error('Please enter a domain or IP address.');
+  const resolvers = [
+    { url: `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=A` },
+    { url: `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=A`, dnsJson: true },
+  ];
+  for (const resolver of resolvers) {
+    try {
+      const res = await fetch(
+        resolver.url,
+        resolver.dnsJson ? { headers: { Accept: 'application/dns-json' } } : undefined
+      );
+      if (!res.ok) continue;
+      const data = await res.json();
+      const answer: any[] = Array.isArray(data.Answer) ? data.Answer : [];
+      const aRecord = answer.find((a) => a.type === 1 && typeof a.data === 'string');
+      if (aRecord?.data) return aRecord.data;
+      if (data.Status && data.Status !== 0) {
+        throw new Error(`Could not resolve "${name}"`);
+      }
+    } catch (err: any) {
+      if ((err?.message || '').startsWith('Could not resolve')) throw err;
+    }
+  }
+  throw new Error(`Could not resolve "${name}"`);
+}
 
 interface IpDetails {
   ip: string;
@@ -72,7 +111,7 @@ export default function ToolsScreen() {
       if (raw) {
         setIpHistory(JSON.parse(raw));
       }
-    } catch {}
+    } catch { }
   };
 
   React.useEffect(() => {
@@ -92,10 +131,10 @@ export default function ToolsScreen() {
       setIpHistory((prev) => {
         const filtered = prev.filter((item) => item.ip !== details.ip);
         const updated = [newEntry, ...filtered].slice(0, 30);
-        AsyncStorage.setItem(IP_HISTORY_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+        AsyncStorage.setItem(IP_HISTORY_STORAGE_KEY, JSON.stringify(updated)).catch(() => { });
         return updated;
       });
-    } catch {}
+    } catch { }
   };
 
   const handleClearIpHistory = async () => {
@@ -103,7 +142,7 @@ export default function ToolsScreen() {
       await AsyncStorage.removeItem(IP_HISTORY_STORAGE_KEY);
       setIpHistory([]);
       Alert.alert('History Cleared', 'Tracked IP history has been reset.');
-    } catch {}
+    } catch { }
   };
 
   const handleOpenIpHistory = async () => {
@@ -132,55 +171,116 @@ export default function ToolsScreen() {
   const fetchIpDetails = async (queryTarget?: string) => {
     setIpLoading(true);
     setIpError(null);
+    const headers = { 'User-Agent': 'NetPlus/1.0 (Android)', Accept: 'application/json' };
+
+    let rawTarget = queryTarget ? queryTarget.trim().replace(/^https?:\/\//i, '').split('/')[0] : '';
+    rawTarget = rawTarget.replace(/^(\d{1,3}\.){3}\d{1,3}:\d+$/, (m) => m.split(':')[0]);
+
+    let lookupTarget = rawTarget;
+    if (rawTarget && !isIpAddress(rawTarget)) {
+      try {
+        const host = rawTarget.startsWith('[') ? rawTarget.slice(1, -1) : rawTarget.split(':')[0];
+        lookupTarget = await resolveHostToIp(host);
+      } catch (err: any) {
+        setIpError(err?.message || 'Could not resolve the given host.');
+        setIpLoading(false);
+        return;
+      }
+    }
+
+    const providers: {
+      name: string;
+      buildUrl: () => string;
+      parse: (data: any) => IpDetails;
+    }[] = [
+        {
+          name: 'ipapi.co',
+          buildUrl: () => (lookupTarget ? `https://ipapi.co/${lookupTarget}/json/` : 'https://ipapi.co/json/'),
+          parse: (data) => ({
+            ip: data.ip || lookupTarget || 'Unknown IP',
+            type: data.version || 'IPv4',
+            isp: data.org || data.asn || 'Unknown ISP',
+            org: data.org || data.asn || 'Unknown AS',
+            city: data.city || 'Unknown',
+            region: data.region || 'Unknown',
+            country: data.country_name || 'Unknown',
+            countryCode: data.country_code || '',
+            lat: data.latitude,
+            lon: data.longitude,
+            timezone: data.timezone || 'UTC',
+          }),
+        },
+        {
+          name: 'ipwho.is',
+          buildUrl: () => (lookupTarget ? `https://ipwho.is/${lookupTarget}` : 'https://ipwho.is/'),
+          parse: (data) => ({
+            ip: data.ip || lookupTarget || 'Unknown IP',
+            type: data.type || 'IPv4',
+            isp: data.connection?.isp || data.connection?.org || 'Unknown ISP',
+            org: data.connection?.org || data.connection?.asn || 'Unknown AS',
+            city: data.city || 'Unknown',
+            region: data.region || 'Unknown',
+            country: data.country || 'Unknown',
+            countryCode: data.country_code || '',
+            lat: data.latitude,
+            lon: data.longitude,
+            timezone:
+              typeof data.timezone === 'string'
+                ? data.timezone
+                : data.timezone?.id || data.timezone?.utc || 'UTC',
+          }),
+        },
+        {
+          name: 'ipinfo.io',
+          buildUrl: () => (lookupTarget ? `https://ipinfo.io/${lookupTarget}/json` : 'https://ipinfo.io/json'),
+          parse: (data) => {
+            const [lat, lon] = (data.loc || '').split(',').map(Number);
+            return {
+              ip: data.ip || lookupTarget || 'Unknown IP',
+              isp: data.org || 'Unknown ISP',
+              org: data.org || 'Unknown AS',
+              city: data.city || 'Unknown',
+              region: data.region || 'Unknown',
+              country: data.country || 'Unknown',
+              countryCode: data.country || '',
+              lat,
+              lon,
+              timezone: data.timezone || 'UTC',
+            };
+          },
+        },
+      ];
+
     try {
-      const cleanTarget = queryTarget ? queryTarget.trim().replace(/^https?:\/\//i, '').split('/')[0] : '';
-      const endpoint = cleanTarget ? `https://ipapi.co/${cleanTarget}/json/` : 'https://ipapi.co/json/';
-      const res = await fetch(endpoint, { cache: 'no-store' });
       let fetchedDetails: IpDetails | null = null;
-      if (!res.ok) {
-        const fbEndpoint = cleanTarget ? `http://ip-api.com/json/${cleanTarget}` : 'http://ip-api.com/json/';
-        const fbRes = await fetch(fbEndpoint);
-        const fbData = await fbRes.json();
-        if (fbData.status === 'fail') {
-          throw new Error(fbData.message || 'Failed to lookup IP details');
+      let lastError: string | null = null;
+
+      for (const provider of providers) {
+        try {
+          const res = await fetch(provider.buildUrl(), { cache: 'no-store', headers });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          if (data?.error || data?.success === false) {
+            throw new Error(data.reason || data.message || 'Service returned an invalid response');
+          }
+          fetchedDetails = provider.parse(data);
+          if (fetchedDetails.ip && fetchedDetails.ip !== 'Unknown IP') break;
+          fetchedDetails = null;
+        } catch (err: any) {
+          lastError = `${provider.name}: ${err?.message || 'Network request failed'}`;
         }
-        fetchedDetails = {
-          ip: fbData.query || cleanTarget || 'Unknown IP',
-          isp: fbData.isp || fbData.org || 'Unknown ISP',
-          org: fbData.org || fbData.as || 'Unknown AS',
-          city: fbData.city || 'Unknown',
-          region: fbData.regionName || fbData.region || 'Unknown',
-          country: fbData.country || 'Unknown',
-          countryCode: fbData.countryCode || '',
-          lat: fbData.lat,
-          lon: fbData.lon,
-          timezone: fbData.timezone || 'UTC',
-        };
-      } else {
-        const data = await res.json();
-        if (data.error) {
-          throw new Error(data.reason || 'Invalid IP or domain name');
-        }
-        fetchedDetails = {
-          ip: data.ip || cleanTarget || 'Unknown IP',
-          type: data.version || 'IPv4',
-          isp: data.org || data.asn || 'Unknown ISP',
-          org: data.org || data.asn || 'Unknown AS',
-          city: data.city || 'Unknown',
-          region: data.region || 'Unknown',
-          country: data.country_name || 'Unknown',
-          countryCode: data.country_code || '',
-          lat: data.latitude,
-          lon: data.longitude,
-          timezone: data.timezone || 'UTC',
-        };
       }
-      setIpDetails(fetchedDetails);
+
       if (fetchedDetails) {
+        setIpDetails(fetchedDetails);
         saveIpToHistory(fetchedDetails);
+      } else {
+        setIpError(lastError || 'Unable to resolve IP geolocation information.');
       }
-    } catch (err: any) {
-      setIpError(err?.message || 'Unable to resolve IP geolocation information.');
+    } catch {
+      setIpError('Unable to resolve IP geolocation information.');
     } finally {
       setIpLoading(false);
     }
@@ -333,6 +433,27 @@ export default function ToolsScreen() {
                 </TouchableOpacity>
               </View>
 
+              <View style={styles.ipPresetSection}>
+                <Text style={[gs.labelCaps, { color: Colors.onSurfaceVariant, marginBottom: 6 }]}>
+                  QUICK LOOKUP
+                </Text>
+                <View style={styles.ipPresetRow}>
+                  {IP_PRESETS.map((preset) => (
+                    <TouchableOpacity
+                      key={preset.host}
+                      style={gs.chip}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setSearchIp(preset.host);
+                        fetchIpDetails(preset.host);
+                      }}
+                    >
+                      <Text style={[gs.codeSm, { color: Colors.primary }]}>{preset.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
               {ipLoading ? (
                 <View style={styles.ipLoadingBox}>
                   <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant }]}>Fetching IP geolocation data...</Text>
@@ -389,7 +510,7 @@ export default function ToolsScreen() {
                     {ipDetails.timezone ? (
                       <View style={styles.ipGridItem}>
                         <Text style={gs.labelCaps}>TIMEZONE</Text>
-                        <Text style={styles.ipValText}>{ipDetails.timezone}</Text>
+                        <Text style={styles.ipValText}>{String(ipDetails.timezone)}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -581,6 +702,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 16,
+  },
+  ipPresetSection: {
+    marginBottom: 16,
+  },
+  ipPresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   myIpBtn: {
     flexDirection: 'row',

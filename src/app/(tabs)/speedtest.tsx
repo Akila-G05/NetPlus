@@ -612,7 +612,7 @@ export default function SpeedTestScreen() {
                 <Text style={styles.liveSpeedValue}>
                   {currentSpeed > 0 ? currentSpeed.toFixed(1) : '0.0'}
                 </Text>
-                <Text style={[gs.labelCaps, { color: Colors.secondaryContainer }]}>Mbps</Text>
+                <Text style={[{ color: Colors.secondaryContainer }]}>Mbps</Text>
               </View>
             )}
           </View>

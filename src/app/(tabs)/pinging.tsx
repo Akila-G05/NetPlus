@@ -25,7 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { InterstitialAd, AdEventType, TestIds } from '@/services/MobileAdsService';
+import { MobileAds, InterstitialAd, AdEventType, TestIds } from '@/services/MobileAdsService';
 
 // ── Pulse animation hook ─────────────────────────────────
 function usePulse() {
@@ -132,8 +132,8 @@ const COOLDOWN_MS = 3 * 60 * 1000;
 // const COOLDOWN_MS = 1000;  //testing
 
 const AD_LOAD_ON_OPEN = false;   // load ad when app opens
-const AD_LOAD_ON_START = false;  // load ad when user taps START
-const AD_LOAD_ON_END = true;    // load ad when user taps STOP (after showing)
+const AD_LOAD_ON_START = true; // load ad when user taps START
+const AD_LOAD_ON_END = false;    // load ad when user taps STOP (after showing)
 
 const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-5784306310827332/4228784926';
 const interstitial = InterstitialAd.createForAdRequest(adUnitId);
@@ -246,7 +246,23 @@ export default function PingingScreen() {
   const sessionRef = useRef<PingSession>({ active: false });
   const latenciesRef = useRef<number[]>([]);
   const adLoaded = useRef(false);
+  const adIsLoading = useRef(false);
   const lastAdShowTime = useRef(0);
+
+  // Guarded ad loader — prevents double `load()` calls (which the SDK drops).
+  const loadInterstitial = useCallback(() => {
+    if (adLoaded.current || adIsLoading.current) {
+      console.log('[AdMob] Skipping load: already loaded/loading.');
+      return;
+    }
+    adIsLoading.current = true;
+    try {
+      interstitial.load();
+    } catch (e: any) {
+      console.warn('[AdMob] load() threw:', e?.message);
+      adIsLoading.current = false;
+    }
+  }, []);
 
   // Load saved settings on first open (falls back to defaults)
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -301,29 +317,40 @@ export default function PingingScreen() {
       interstitial.addAdEventListener(AdEventType.LOADED, () => {
         console.log('[AdMob] Interstitial ad loaded successfully.');
         adLoaded.current = true;
+        adIsLoading.current = false;
       }),
       interstitial.addAdEventListener(AdEventType.CLOSED, () => {
         console.log('[AdMob] Interstitial ad was closed.');
         adLoaded.current = false;
+        adIsLoading.current = false;
         if (AD_LOAD_ON_END) {
           console.log('[AdMob] Preloading next interstitial ad...');
-          interstitial.load();
+          loadInterstitial();
         }
       }),
       interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
         console.error('[AdMob] Interstitial ad failed to load:', error);
         adLoaded.current = false;
+        adIsLoading.current = false;
       }),
     ];
     if (AD_LOAD_ON_OPEN) {
-      console.log('[AdMob] Loading interstitial ad...');
-      interstitial.load();
+      // Wait for SDK init before first load to avoid cold-start races.
+      MobileAds()
+        .initialize()
+        .then(() => {
+          console.log('[AdMob] SDK ready, loading interstitial ad...');
+          loadInterstitial();
+        })
+        .catch(() => {
+          loadInterstitial();
+        });
     }
     return () => {
       console.log('[AdMob] Unregistering interstitial ad event listeners...');
       subs.forEach((s) => s());
     };
-  }, []);
+  }, [loadInterstitial]);
 
   const stopPing = useCallback(() => {
     sessionRef.current.active = false;
@@ -348,9 +375,10 @@ export default function PingingScreen() {
       try {
         interstitial.show();
         lastAdShowTime.current = now;
+        // Do NOT load here — the CLOSED listener reloads the next ad.
       } catch (e: any) {
         console.warn('[AdMob] show() threw, reloading ad:', e?.message);
-        interstitial.load();
+        loadInterstitial();
       }
     } else {
       console.log(
@@ -359,11 +387,12 @@ export default function PingingScreen() {
           COOLDOWN_MS - (now - lastAdShowTime.current)
         )}ms`
       );
+      // Nothing was shown, so (re)load for the next session end.
+      if (AD_LOAD_ON_END) {
+        loadInterstitial();
+      }
     }
-    if (AD_LOAD_ON_END) {
-      interstitial.load();
-    }
-  }, []);
+  }, [loadInterstitial]);
 
   useEffect(() => () => stopPing(), [stopPing]);
 
@@ -432,7 +461,7 @@ export default function PingingScreen() {
     setStats(EMPTY_STATS);
     setIsPinging(true);
     if (AD_LOAD_ON_START) {
-      interstitial.load();
+      loadInterstitial();
     }
 
     const session: PingSession = { active: true };
@@ -455,7 +484,7 @@ export default function PingingScreen() {
       const latencyRaw = await pingHost(host, requestTimeoutMs, pingMethod);
       const latency =
         latencyRaw !== null ? Math.min(Math.round(latencyRaw), MAX_PING_MS) : null;
-      console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
+      // console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
       if (!session.active) return; // stopped while in flight
 
       dataUsageTracker.recordPingResult(latency !== null);
@@ -510,7 +539,7 @@ export default function PingingScreen() {
 
     session.tick = tick;
     tick();
-  }, [targetConnection, customHost, pingInterval, pingMethod, stopPing]);
+  }, [targetConnection, customHost, pingInterval, pingMethod, stopPing, loadInterstitial]);
 
   return (
     <ScrollView

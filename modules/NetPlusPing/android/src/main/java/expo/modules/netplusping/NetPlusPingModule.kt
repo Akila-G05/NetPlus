@@ -1,17 +1,103 @@
 package expo.modules.netplusping
 
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.concurrent.TimeUnit
 
 class NetPlusPingModule : Module() {
 
+  companion object {
+    private var instance: NetPlusPingModule? = null
+
+    fun emitPingResult(host: String, latency: Int, sent: Int, recv: Int, fail: Int) {
+      instance?.sendEvent(
+        "onPingResult",
+        mapOf(
+          "host" to host,
+          "latency" to latency,
+          "sent" to sent,
+          "recv" to recv,
+          "fail" to fail
+        )
+      )
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("NetPlusPing")
+    Events("onPingResult")
+
+    OnCreate {
+      instance = this@NetPlusPingModule
+      NetPlusPingForegroundService.listener = { host, latency, sent, recv, fail ->
+        emitPingResult(host, latency, sent, recv, fail)
+      }
+    }
+
+    OnDestroy {
+      if (instance == this@NetPlusPingModule) {
+        instance = null
+      }
+    }
 
     AsyncFunction("ping") { host: String, timeoutMs: Double ->
       val timeout = timeoutMs.toInt().coerceIn(100, 10000)
       runPing(host, timeout)
+    }
+
+    AsyncFunction("startContinuousPing") { host: String, intervalMs: Double, timeoutMs: Double, method: String, title: String, body: String ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      try {
+        val intent = Intent(context, NetPlusPingForegroundService::class.java).apply {
+          action = NetPlusPingForegroundService.ACTION_START
+          putExtra(NetPlusPingForegroundService.EXTRA_HOST, host)
+          putExtra(NetPlusPingForegroundService.EXTRA_INTERVAL, intervalMs.toLong())
+          putExtra(NetPlusPingForegroundService.EXTRA_TIMEOUT, timeoutMs.toInt())
+          putExtra(NetPlusPingForegroundService.EXTRA_METHOD, method)
+          putExtra(NetPlusPingForegroundService.EXTRA_TITLE, title)
+          putExtra(NetPlusPingForegroundService.EXTRA_BODY, body)
+        }
+        ContextCompat.startForegroundService(context, intent)
+        true
+      } catch (e: Exception) {
+        e.printStackTrace()
+        false
+      }
+    }
+
+    AsyncFunction("stopContinuousPing") {
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      try {
+        val intent = Intent(context, NetPlusPingForegroundService::class.java).apply {
+          action = NetPlusPingForegroundService.ACTION_STOP
+        }
+        context.startService(intent)
+        true
+      } catch (e: Exception) {
+        e.printStackTrace()
+        false
+      }
+    }
+
+    AsyncFunction("getBackgroundStats") {
+      val minMs = if (NetPlusPingForegroundService.minMs == Double.MAX_VALUE) 0 else NetPlusPingForegroundService.minMs.toInt()
+      val recv = NetPlusPingForegroundService.recvCount
+      val sum = NetPlusPingForegroundService.sumMs
+      val avgMs = if (recv > 0) (sum / recv).toInt() else 0
+
+      mapOf(
+        "isRunning" to NetPlusPingForegroundService.isRunning,
+        "sent" to NetPlusPingForegroundService.sentCount,
+        "recv" to NetPlusPingForegroundService.recvCount,
+        "fail" to NetPlusPingForegroundService.failCount,
+        "min" to minMs,
+        "max" to NetPlusPingForegroundService.maxMs.toInt(),
+        "avg" to avgMs,
+        "lastLatency" to NetPlusPingForegroundService.lastLatencyMs
+      )
     }
   }
 
@@ -44,7 +130,6 @@ class NetPlusPingModule : Module() {
 
       val output = process.inputStream.bufferedReader().use { it.readText() }
 
-      // 1. Match latency: "64 bytes from ... time=24.5 ms" or "time=24.5ms" or "time<1 ms"
       val timeRegex = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
       val timeMatch = timeRegex.find(output)
       if (timeMatch != null) {
@@ -52,14 +137,14 @@ class NetPlusPingModule : Module() {
         if (valMs != null && valMs > 0) return valMs
       }
 
-      // 2. Match summary line: "rtt min/avg/max/mdev = 18.234/18.234/18.234/0.000 ms"
       val rttRegex = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
       val rttMatch = rttRegex.find(output)
       val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
       if (rttMs != null && rttMs > 0) return rttMs
 
-      // 3. Fallback: Check if packet was received successfully (0% packet loss / 1 received)
-      if (output.contains("1 received", ignoreCase = true) || output.contains("0% packet loss", ignoreCase = true) || output.contains("0% loss", ignoreCase = true)) {
+      if (output.contains("1 received", ignoreCase = true) ||
+          output.contains("0% packet loss", ignoreCase = true) ||
+          output.contains("0% loss", ignoreCase = true)) {
         return 1.0
       }
     } catch (e: Exception) {
@@ -69,4 +154,3 @@ class NetPlusPingModule : Module() {
     return null
   }
 }
-

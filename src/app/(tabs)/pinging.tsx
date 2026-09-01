@@ -1,4 +1,9 @@
-import { ping as nativeIcmpPing } from 'netplus-ping';
+import {
+  ping as nativeIcmpPing,
+  startContinuousPing,
+  stopContinuousPing,
+  getBackgroundStats,
+} from 'netplus-ping';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
 import SettingsRow from '@/components/SettingsRow';
@@ -10,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   FlatList,
   Modal,
   ScrollView,
@@ -139,6 +145,7 @@ function sanitizeHost(input: string): string {
 interface PingSession {
   active: boolean;
   timer?: ReturnType<typeof setTimeout>;
+  tick?: () => void;
 }
 
 interface PingStats {
@@ -392,6 +399,10 @@ export default function PingingScreen() {
   const stopPing = useCallback(() => {
     sessionRef.current.active = false;
     if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
+
+    // Clean up native continuous ping service
+    stopContinuousPing().catch(() => {});
+
     setIsPinging(false);
     dataUsageTracker.setPingingActive(false);
 
@@ -427,6 +438,48 @@ export default function PingingScreen() {
 
   useEffect(() => () => stopPing(), [stopPing]);
 
+  const syncBackgroundStats = useCallback(async () => {
+    if (!sessionRef.current.active) return;
+    const bgStats = await getBackgroundStats();
+    if (!bgStats || bgStats.sent === 0) return;
+
+    const sent = bgStats.sent;
+    const recv = bgStats.recv;
+    const fail = bgStats.fail;
+    const lossPct = sent > 0 ? Math.round((fail / sent) * 100) : 0;
+    const successPct = sent > 0 ? Math.round((recv / sent) * 100) : 0;
+
+    setStats({
+      min: bgStats.min,
+      max: bgStats.max,
+      avg: bgStats.avg,
+      jitter: 0,
+      lossPct,
+      successPct,
+      sent,
+      recv,
+      fail,
+    });
+
+    if (bgStats.lastLatency > 0) {
+      setCurrentLatency(Math.round(bgStats.lastLatency));
+    }
+  }, []);
+
+  // Sync background stats and resume pinging immediately when returning to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && sessionRef.current.active) {
+        syncBackgroundStats();
+        if (sessionRef.current.tick) {
+          if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
+          sessionRef.current.tick();
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, [syncBackgroundStats]);
+
   const startPing = useCallback(() => {
     const host = resolveHost(targetConnection, customHost);
     if (!host) return;
@@ -436,7 +489,14 @@ export default function PingingScreen() {
     // Requests are capped at MAX_PING_MS — anything slower counts as a loss
     const requestTimeoutMs = Math.min(Math.max(intervalMs * 2, 3000), MAX_PING_MS);
 
-    stopPing();
+    // Stop any existing JS-side ping loop/timer, but do NOT stop the
+    // native foreground service here — the new startContinuousPing()
+    // intent will override the running service's parameters directly,
+    // avoiding a STOP→START race that kills the service before it
+    // can promote to foreground.
+    sessionRef.current.active = false;
+    if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
+
     dataUsageTracker.setPingingActive(true);
     latenciesRef.current = [];
     setCurrentLatency(null);
@@ -448,6 +508,16 @@ export default function PingingScreen() {
 
     const session: PingSession = { active: true };
     sessionRef.current = session;
+
+    // Start native continuous ping service with WakeLock and persistent notification
+    startContinuousPing(
+      host,
+      intervalMs,
+      requestTimeoutMs,
+      pingMethod,
+      'NetPlus Continuous Monitor',
+      `Pinging ${host} every ${pingInterval}`
+    ).catch(() => {});
 
     const tick = async () => {
       if (!session.active) return;
@@ -509,6 +579,7 @@ export default function PingingScreen() {
       }
     };
 
+    session.tick = tick;
     tick();
   }, [targetConnection, customHost, pingInterval, pingMethod, stopPing]);
 

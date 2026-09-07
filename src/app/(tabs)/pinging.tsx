@@ -1,18 +1,19 @@
-import {
-  ping as nativeIcmpPing,
-  startContinuousPing,
-  stopContinuousPing,
-  getBackgroundStats,
-} from 'netplus-ping';
-import { dataUsageTracker } from '@/services/DataUsageTracker';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
 import SettingsRow from '@/components/SettingsRow';
 import SimpleSelect from '@/components/SimpleSelect';
 import StatBox from '@/components/StatBox';
 import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
+import { dataUsageTracker } from '@/services/DataUsageTracker';
+import { AdEventType, InterstitialAd, MobileAds, TestIds } from '@/services/MobileAdsService';
 import { gs } from '@/styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  getBackgroundStats,
+  ping as nativeIcmpPing,
+  startContinuousPing,
+  stopContinuousPing,
+} from 'netplus-ping';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -25,7 +26,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { MobileAds, InterstitialAd, AdEventType, TestIds } from '@/services/MobileAdsService';
 
 // ── Pulse animation hook ─────────────────────────────────
 function usePulse() {
@@ -53,11 +53,11 @@ function usePulse() {
 const TARGET_HOSTS: Record<string, string> = {
   'Google': '8.8.8.8',
   'Google DNS': '8.8.8.8',
-  'Hutch': 'hutch.lk',
-  'Dialog': 'dialog.lk',
-  'Mobitel': 'mobitel.lk',
-  'Mobitel / SLT': 'mobitel.lk',
-  'Airtel': 'airtel.lk',
+  'Hutch': 'oneapp.hutch.lk',
+  'Dialog': 'selfcare.dialog.lk',
+  'Mobitel': 'mas.mobitel.lk',
+  'Mobitel / SLT': 'mas.mobitel.lk',
+  'Airtel': 'my.airtel.lk',
 };
 
 function sanitizeHost(input: string): string {
@@ -289,14 +289,14 @@ export default function PingingScreen() {
           setPingInterval(saved.pingInterval);
         }
       })
-      .catch(() => {})
+      .catch(() => { })
       .then(() => AsyncStorage.getItem(PING_METHOD_KEY))
       .then((method) => {
         if (method === 'icmp' || method === 'http') {
           setPingMethod(method as PingMethod);
         }
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setConfigLoaded(true));
   }, []);
 
@@ -306,8 +306,8 @@ export default function PingingScreen() {
     AsyncStorage.setItem(
       PING_CONFIG_KEY,
       JSON.stringify({ targetConnection, customHost, pingInterval })
-    ).catch(() => {});
-    AsyncStorage.setItem(PING_METHOD_KEY, pingMethod).catch(() => {});
+    ).catch(() => { });
+    AsyncStorage.setItem(PING_METHOD_KEY, pingMethod).catch(() => { });
   }, [configLoaded, targetConnection, customHost, pingInterval, pingMethod]);
 
   // Ad event listeners
@@ -357,7 +357,7 @@ export default function PingingScreen() {
     if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
 
     // Clean up native continuous ping service
-    stopContinuousPing().catch(() => {});
+    stopContinuousPing().catch(() => { });
 
     setIsPinging(false);
     dataUsageTracker.setPingingActive(false);
@@ -365,7 +365,7 @@ export default function PingingScreen() {
     const now = Date.now();
     const isActuallyReady =
       adLoaded.current &&
-      typeof (interstitial as any).getIsLoaded?.() === 'boolean'
+        typeof (interstitial as any).getIsLoaded?.() === 'boolean'
         ? (interstitial as any).getIsLoaded()
         : adLoaded.current;
 
@@ -475,7 +475,7 @@ export default function PingingScreen() {
       pingMethod,
       'NetPlus Continuous Monitor',
       `Pinging ${host} every ${pingInterval}`
-    ).catch(() => {});
+    ).catch(() => { });
 
     const tick = async () => {
       if (!session.active) return;
@@ -646,7 +646,7 @@ export default function PingingScreen() {
           </View>
         </TouchableOpacity>
       </View>
-      
+
       {/* ── Settings shortcut ────────────────────────────── */}
       <TouchableOpacity
         style={styles.settingsRow}

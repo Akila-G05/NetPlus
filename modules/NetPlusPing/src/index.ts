@@ -43,7 +43,7 @@ export async function startContinuousPing(
   host: string,
   intervalMs: number = 1000,
   timeoutMs: number = 3000,
-  method: string = 'icmp',
+  method: string = 'http',
   title: string = 'NetPlus Continuous Monitor',
   body: string = 'Pinging...'
 ): Promise<boolean> {
@@ -76,4 +76,31 @@ export async function getBackgroundStats(): Promise<BackgroundPingStats | null> 
 export function addPingResultListener(listener: (event: PingResultEvent) => void) {
   if (!emitter) return { remove: () => {} };
   return (emitter as any).addListener('onPingResult', listener);
+}
+
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
+  if (!NetPlusPing || typeof NetPlusPing.isIgnoringBatteryOptimizations !== 'function') return false;
+  try {
+    return !!(await NetPlusPing.isIgnoringBatteryOptimizations());
+  } catch {
+    return false;
+  }
+}
+
+export async function requestIgnoreBatteryOptimizations(): Promise<boolean> {
+  if (!NetPlusPing || typeof NetPlusPing.requestIgnoreBatteryOptimizations !== 'function') return false;
+  try {
+    return !!(await NetPlusPing.requestIgnoreBatteryOptimizations());
+  } catch {
+    return false;
+  }
+}
+
+export async function openBatteryOptimizationSettings(): Promise<boolean> {
+  if (!NetPlusPing || typeof NetPlusPing.openBatteryOptimizationSettings !== 'function') return false;
+  try {
+    return !!(await NetPlusPing.openBatteryOptimizationSettings());
+  } catch {
+    return false;
+  }
 }

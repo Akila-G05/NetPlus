@@ -2,6 +2,9 @@ package expo.modules.netplusping
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -98,6 +101,46 @@ class NetPlusPingModule : Module() {
         "avg" to avgMs,
         "lastLatency" to NetPlusPingForegroundService.lastLatencyMs
       )
+    }
+
+    // ── Battery optimization exemption ──────────────────────────────
+    AsyncFunction("isIgnoringBatteryOptimizations") { ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+      pm?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+    }
+
+    AsyncFunction("requestIgnoreBatteryOptimizations") { ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      return@AsyncFunction runCatching {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        if (pm?.isIgnoringBatteryOptimizations(context.packageName) == true) {
+          true
+        } else {
+          val intent = Intent(
+            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:${context.packageName}")
+          ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          context.startActivity(intent)
+          true
+        }
+      }.getOrElse {
+        it.printStackTrace()
+        false
+      }
+    }
+
+    AsyncFunction("openBatteryOptimizationSettings") { ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      return@AsyncFunction runCatching {
+        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        true
+      }.getOrElse {
+        it.printStackTrace()
+        false
+      }
     }
   }
 

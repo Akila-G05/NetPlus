@@ -14,6 +14,7 @@ import {
   StyleSheet,
   Modal,
   Alert,
+  AppState,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
@@ -24,6 +25,11 @@ import { dataUsageTracker } from '@/services/DataUsageTracker';
 import { useRouter } from 'expo-router';
 
 import { notificationService } from '@/services/NotificationService';
+import {
+  isIgnoringBatteryOptimizations,
+  openBatteryOptimizationSettings,
+  requestIgnoreBatteryOptimizations,
+} from 'netplus-ping';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -31,6 +37,7 @@ export default function SettingsScreen() {
   // General Preferences State
   const [pushNotifications, setPushNotifications] = useState(true);
   const [autoSaveLogs, setAutoSaveLogs] = useState(true);
+  const [allowBackgroundRun, setAllowBackgroundRun] = useState(false);
 
   // Modals State
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
@@ -47,6 +54,20 @@ export default function SettingsScreen() {
     notificationService.isNotificationsEnabled().then((enabled) => {
       setPushNotifications(enabled);
     });
+    isIgnoringBatteryOptimizations().then((exempt) => {
+      setAllowBackgroundRun(exempt);
+    });
+
+    // Re-sync when the user returns to the app after changing the
+    // exemption/background-run setting in Android's battery settings.
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        isIgnoringBatteryOptimizations().then((exempt) => {
+          setAllowBackgroundRun(exempt);
+        });
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   const handleToggleNotifications = async (val: boolean) => {
@@ -59,6 +80,20 @@ export default function SettingsScreen() {
       );
       setPushNotifications(false);
     }
+  };
+
+  const handleToggleBackgroundRun = async (val: boolean) => {
+    if (val) {
+      await requestIgnoreBatteryOptimizations();
+    } else {
+      Alert.alert(
+        'Disabling Background Run',
+        'Battery optimization exemptions cannot be revoked in-app. Please turn off the exemption for NetPulse in your device settings.'
+      );
+      openBatteryOptimizationSettings();
+    }
+    const exempt = await isIgnoringBatteryOptimizations();
+    setAllowBackgroundRun(exempt);
   };
 
   // App Reset Handler
@@ -131,6 +166,13 @@ export default function SettingsScreen() {
           label="Auto-Save Test Logs"
           value={autoSaveLogs}
           onValueChange={setAutoSaveLogs}
+          bordered
+        />
+
+        <SettingsToggle
+          label="Allow Background Run"
+          value={allowBackgroundRun}
+          onValueChange={handleToggleBackgroundRun}
           bordered
         />
       </View>

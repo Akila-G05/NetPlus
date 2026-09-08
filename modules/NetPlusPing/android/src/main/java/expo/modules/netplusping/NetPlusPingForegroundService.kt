@@ -1,16 +1,22 @@
 package expo.modules.netplusping
 
+import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import java.net.HttpURLConnection
 import java.net.URL
@@ -21,6 +27,7 @@ class NetPlusPingForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var pingJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var userStopped = false
 
     companion object {
         const val CHANNEL_ID = "netplus_ping_channel"
@@ -28,6 +35,7 @@ class NetPlusPingForegroundService : Service() {
 
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_WATCHDOG_RESTART = "expo.modules.netplusping.RESTART_PING"
 
         const val EXTRA_HOST = "EXTRA_HOST"
         const val EXTRA_INTERVAL = "EXTRA_INTERVAL"
@@ -35,6 +43,15 @@ class NetPlusPingForegroundService : Service() {
         const val EXTRA_METHOD = "EXTRA_METHOD"
         const val EXTRA_TITLE = "EXTRA_TITLE"
         const val EXTRA_BODY = "EXTRA_BODY"
+
+        private const val PREFS_NAME = "netplus_ping_session"
+        private const val KEY_ACTIVE = "active"
+        private const val KEY_HOST = "host"
+        private const val KEY_INTERVAL = "interval_ms"
+        private const val KEY_TIMEOUT = "timeout_ms"
+        private const val KEY_METHOD = "method"
+        private const val KEY_TITLE = "title"
+        private const val KEY_BODY = "body"
 
         internal val SCHEME_REGEX = Regex("""^https?://""", RegexOption.IGNORE_CASE)
         internal val TIME_REGEX = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
@@ -77,6 +94,70 @@ class NetPlusPingForegroundService : Service() {
             sumMs = 0.0
             lastLatencyMs = -1.0
         }
+
+        data class Session(
+            val active: Boolean,
+            val host: String,
+            val intervalMs: Long,
+            val timeoutMs: Int,
+            val method: String,
+            val title: String,
+            val body: String
+        )
+
+        private fun prefs(context: Context): SharedPreferences =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        fun saveSession(
+            context: Context,
+            host: String,
+            intervalMs: Long,
+            timeoutMs: Int,
+            method: String,
+            title: String,
+            body: String
+        ) {
+            prefs(context).edit()
+                .putBoolean(KEY_ACTIVE, true)
+                .putString(KEY_HOST, host)
+                .putLong(KEY_INTERVAL, intervalMs)
+                .putInt(KEY_TIMEOUT, timeoutMs)
+                .putString(KEY_METHOD, method)
+                .putString(KEY_TITLE, title)
+                .putString(KEY_BODY, body)
+                .apply()
+        }
+
+        fun clearSession(context: Context) {
+            prefs(context).edit().clear().apply()
+        }
+
+        fun loadSession(context: Context): Session {
+            val p = prefs(context)
+            if (!p.getBoolean(KEY_ACTIVE, false)) {
+                return Session(false, "8.8.8.8", 1000L, 3000, "http", "NetPlus Continuous Monitor", "Pinging...")
+            }
+            return Session(
+                active = true,
+                host = p.getString(KEY_HOST, "8.8.8.8") ?: "8.8.8.8",
+                intervalMs = p.getLong(KEY_INTERVAL, 1000L),
+                timeoutMs = p.getInt(KEY_TIMEOUT, 3000),
+                method = p.getString(KEY_METHOD, "http") ?: "http",
+                title = p.getString(KEY_TITLE, "NetPlus Continuous Monitor") ?: "NetPlus Continuous Monitor",
+                body = p.getString(KEY_BODY, "Pinging...") ?: "Pinging..."
+            )
+        }
+
+        fun buildIntent(context: Context, s: Session): Intent =
+            Intent(context, NetPlusPingForegroundService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_HOST, s.host)
+                putExtra(EXTRA_INTERVAL, s.intervalMs)
+                putExtra(EXTRA_TIMEOUT, s.timeoutMs)
+                putExtra(EXTRA_METHOD, s.method)
+                putExtra(EXTRA_TITLE, s.title)
+                putExtra(EXTRA_BODY, s.body)
+            }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -91,6 +172,8 @@ class NetPlusPingForegroundService : Service() {
         val action = intent?.action ?: ACTION_STOP
 
         if (action == ACTION_STOP) {
+            userStopped = true
+            clearSession(this)
             stopMonitoring()
             stopSelf()
             return START_NOT_STICKY
@@ -99,12 +182,16 @@ class NetPlusPingForegroundService : Service() {
         val host = intent?.getStringExtra(EXTRA_HOST) ?: "8.8.8.8"
         val intervalMs = intent?.getLongExtra(EXTRA_INTERVAL, 1000L) ?: 1000L
         val timeoutMs = intent?.getIntExtra(EXTRA_TIMEOUT, 3000) ?: 3000
-        val method = intent?.getStringExtra(EXTRA_METHOD) ?: "icmp"
+        val method = intent?.getStringExtra(EXTRA_METHOD) ?: "http"
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "NetPlus Continuous Monitor"
         val body = intent?.getStringExtra(EXTRA_BODY) ?: "Pinging $host"
 
+        userStopped = false
         acquireWakeLock()
         promoteToForeground(title, body)
+
+        // Persist the session so a boot watchdog / process restart can restore it.
+        saveSession(this, host, intervalMs, timeoutMs, method, title, body)
 
         startMonitoring(host, intervalMs, timeoutMs, method, title)
 
@@ -149,9 +236,10 @@ class NetPlusPingForegroundService : Service() {
         pingJob = serviceScope.launch {
             while (isActive && isRunning) {
                 ensureWakeLockHeld()
-                val startTime = System.currentTimeMillis()
+                val startElapsed = SystemClock.elapsedRealtime()
+
                 val latency = if (method.equals("icmp", ignoreCase = true)) {
-                    runNativePing(host, timeoutMs) ?: runHttpPing(host, timeoutMs)
+                    runNativePingSafely(host, timeoutMs) ?: runHttpPing(host, timeoutMs)
                 } else {
                     runHttpPing(host, timeoutMs)
                 }
@@ -175,7 +263,7 @@ class NetPlusPingForegroundService : Service() {
                     listener?.invoke(host, -1, sentCount, recvCount, failCount)
                 }
 
-                val elapsed = System.currentTimeMillis() - startTime
+                val elapsed = SystemClock.elapsedRealtime() - startElapsed
                 val sleepTime = maxOf(100L, intervalMs - elapsed)
                 delay(sleepTime)
             }
@@ -206,6 +294,11 @@ class NetPlusPingForegroundService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private suspend fun runNativePingSafely(rawHost: String, timeoutMs: Int): Double? {
+        val guardMs = ((timeoutMs + 2000).toLong()).coerceAtLeast(5000L)
+        return withTimeoutOrNull(guardMs) { runNativePing(rawHost, timeoutMs) }
     }
 
     private fun runNativePing(rawHost: String, timeoutMs: Int): Double? {
@@ -315,11 +408,14 @@ class NetPlusPingForegroundService : Service() {
         manager?.notify(NOTIFICATION_ID, notification)
     }
 
+    @SuppressLint("WakelockTimeout")
     private fun acquireWakeLock() {
         releaseWakeLock()
         val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
         wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NetPlus::ContinuousPingWakeLock")
-        wakeLock?.acquire(30 * 60 * 1000L) // 30 min timeout; re-acquired each cycle
+        // Held for the entire service lifetime (released only on stop) — mirrors Z Pinger
+        // so the CPU stays awake with the screen off and the ping loop never suspends.
+        wakeLock?.acquire()
     }
 
     private fun ensureWakeLockHeld() {
@@ -335,9 +431,50 @@ class NetPlusPingForegroundService : Service() {
         wakeLock = null
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Swiping the app away must not kill background pinging: immediately relaunch
+        // and schedule a watchdog re-launch in case the OS tears the process down.
+        val session = loadSession(this)
+        if (isRunning && session.active) {
+            try {
+                ContextCompat.startForegroundService(this, buildIntent(this, session))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            scheduleWatchdogRestart()
+        }
+    }
+
+    private fun scheduleWatchdogRestart() {
+        try {
+            val alarm = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(this, NetPlusPingBootReceiver::class.java)
+                .setAction(ACTION_WATCHDOG_RESTART)
+            val pi = PendingIntent.getBroadcast(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val triggerAt = SystemClock.elapsedRealtime() + 1000L
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarm.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            } else {
+                alarm.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override fun onDestroy() {
+        val shouldRestart = !userStopped && isRunning && loadSession(this).active
         stopMonitoring()
         serviceScope.cancel()
         super.onDestroy()
+        if (shouldRestart) {
+            scheduleWatchdogRestart()
+        }
     }
 }

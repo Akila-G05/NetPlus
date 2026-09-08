@@ -4,13 +4,17 @@ import SimpleSelect from '@/components/SimpleSelect';
 import StatBox from '@/components/StatBox';
 import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
+import { notificationService } from '@/services/NotificationService';
 import { AdEventType, InterstitialAd, MobileAds, TestIds } from '@/services/MobileAdsService';
 import { gs } from '@/styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getBackgroundStats,
+  isIgnoringBatteryOptimizations,
+  openBatteryOptimizationSettings,
   ping as nativeIcmpPing,
+  requestIgnoreBatteryOptimizations,
   startContinuousPing,
   stopContinuousPing,
 } from 'netplus-ping';
@@ -93,9 +97,10 @@ const MAX_PING_MS = 5000;
 
 const PING_CONFIG_KEY = '@netplus/ping-config';
 const PING_METHOD_KEY = '@netplus/ping-method';
+const BATTERY_TIP_KEY = '@netplus/battery-tip-shown';
 const DEFAULT_TARGET = 'Google';
 const DEFAULT_INTERVAL = '5000 ms (5s)';
-const DEFAULT_PING_METHOD: PingMethod = 'icmp';
+const DEFAULT_PING_METHOD: PingMethod = 'http';
 
 const targetOptions = [
   'Google',
@@ -233,6 +238,9 @@ export default function PingingScreen() {
 
   // Ping Configuration State
   const [configModalVisible, setConfigModalVisible] = useState(false);
+  const [batteryModalVisible, setBatteryModalVisible] = useState(false);
+  const [batteryExempt, setBatteryExempt] = useState(false);
+  const [batteryBusy, setBatteryBusy] = useState(false);
   const [targetConnection, setTargetConnection] = useState(DEFAULT_TARGET);
   const [customHost, setCustomHost] = useState('');
   const [pingInterval, setPingInterval] = useState(DEFAULT_INTERVAL);
@@ -299,6 +307,30 @@ export default function PingingScreen() {
       .catch(() => { })
       .finally(() => setConfigLoaded(true));
   }, []);
+
+  // Refresh battery-optimization exemption status when the modal opens
+  const refreshBatteryExempt = useCallback(async () => {
+    const exempt = await isIgnoringBatteryOptimizations();
+    setBatteryExempt(exempt);
+    return exempt;
+  }, []);
+
+  // First-open onboarding: request notification permission and show the
+  // background-run confirmation dialog so pinging survives screen-off.
+  useEffect(() => {
+    if (!configLoaded) return;
+    (async () => {
+      try {
+        const shown = await AsyncStorage.getItem(BATTERY_TIP_KEY);
+        const exempt = await refreshBatteryExempt();
+        await notificationService.requestPermissions();
+        if (!exempt && shown !== 'true') {
+          setBatteryModalVisible(true);
+          await AsyncStorage.setItem(BATTERY_TIP_KEY, 'true');
+        }
+      } catch { }
+    })();
+  }, [configLoaded, refreshBatteryExempt]);
 
   // Save settings whenever they change (after initial load)
   useEffect(() => {
@@ -660,6 +692,26 @@ export default function PingingScreen() {
         <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
       </TouchableOpacity>
 
+      {/* ── Battery optimization shortcut ─────────────────── */}
+      {!batteryExempt && (
+        <TouchableOpacity
+          style={styles.settingsRow}
+          activeOpacity={0.7}
+          onPress={() => {
+            refreshBatteryExempt();
+            setBatteryModalVisible(true);
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <MaterialIcons name="battery-alert" size={18} color={Colors.warning} />
+            <Text style={[gs.bodyMd, { color: Colors.onSurface }]}>Allow Background Run</Text>
+          </View>
+          <View style={[styles.methodBadge, { backgroundColor: 'rgba(255,167,38,0.15)' }]}>
+            <Text style={[styles.methodBadgeText, { color: Colors.warning }]}>SET UP</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* ── Statistics Grid ──────────────────────────────── */}
       <View style={styles.statsGrid}>
         <View style={styles.statsRow}>
@@ -762,9 +814,9 @@ export default function PingingScreen() {
 
               <SettingsRow label="Ping Method" bordered>
                 <SimpleSelect
-                  options={['ICMP (Recommended)', 'HTTP']}
-                  selectedOption={pingMethod === 'icmp' ? 'ICMP (Recommended)' : 'HTTP'}
-                  onSelect={(opt) => setPingMethod(opt === 'ICMP (Recommended)' ? 'icmp' : 'http')}
+                  options={['HTTP (Recommended)', 'ICMP']}
+                  selectedOption={pingMethod === 'http' ? 'HTTP (Recommended)' : 'ICMP'}
+                  onSelect={(opt) => setPingMethod(opt === 'HTTP (Recommended)' ? 'http' : 'icmp')}
                 />
               </SettingsRow>
 
@@ -779,6 +831,88 @@ export default function PingingScreen() {
               >
                 <Text style={gs.btnPrimaryText}>Save & Apply</Text>
               </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Battery Optimization Modal ──────────────────────────────── */}
+      <Modal
+        visible={batteryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBatteryModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.configModalOverlay}
+          activeOpacity={1}
+          onPress={() => setBatteryModalVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.cardModalContainer}>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <MaterialIcons name="battery-alert" size={20} color={Colors.warning} />
+                  <Text style={styles.cardTitle}>ALLOW BACKGROUND RUN</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setBatteryModalVisible(false)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <MaterialIcons name="close" size={20} color={Colors.onSurfaceVariant} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[gs.bodyMd, { color: Colors.onSurface, marginBottom: 10 }]}>
+                Some phones (especially Honor / Huawei / Xiaomi) pause background apps when the
+                screen is off, which can pause pinging. Allowing NetPlus to ignore battery
+                optimization keeps pinging running reliably in the background.
+              </Text>
+
+              {batteryExempt ? (
+                <View style={[styles.batteryOkBanner, { marginBottom: 12 }]}>
+                  <MaterialIcons name="check-circle" size={18} color={Colors.tertiary} />
+                  <Text style={[gs.bodyMd, { color: Colors.tertiary, flex: 1 }]}>
+                    Battery optimization is already disabled for NetPlus.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[gs.btnPrimary, { marginBottom: 10 }]}
+                    activeOpacity={0.8}
+                    disabled={batteryBusy}
+                    onPress={async () => {
+                      setBatteryBusy(true);
+                      await requestIgnoreBatteryOptimizations();
+                      await refreshBatteryExempt();
+                      setBatteryBusy(false);
+                    }}
+                  >
+                    <Text style={gs.btnPrimaryText}>
+                      {batteryBusy ? 'Opening…' : 'Allow Background Always'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[gs.btnSecondary, { marginBottom: 6 }]}
+                    activeOpacity={0.8}
+                    onPress={() => openBatteryOptimizationSettings()}
+                  >
+                    <Text style={gs.btnSecondaryText}>Open Battery Settings</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              <Text style={[Typography.labelCaps, { color: Colors.onSurfaceVariant, marginTop: 10 }]}>
+                HONOR / HUAWEI STEP-BY-STEP
+              </Text>
+              <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 6 }]}>
+                1. Open Settings → Battery → App launch
+                {'\n'}2. Find NetPlus → tap it → select {`'Manage manually'`}
+                {'\n'}3. Enable ALL toggles (Auto-launch, Secondary launch, Run in background)
+                {'\n'}4. Also {`'Lock'`} NetPlus in Recent Apps.
+              </Text>
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -976,6 +1110,16 @@ const styles = StyleSheet.create({
     borderColor: Colors.outlineVariant,
     paddingVertical: 8,
     paddingHorizontal: 16,
+  },
+  batteryOkBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(120, 220, 119, 0.1)',
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(120, 220, 119, 0.3)',
+    padding: 10,
   },
 
   // ── Modal & Select Styles ──────────────────────────────

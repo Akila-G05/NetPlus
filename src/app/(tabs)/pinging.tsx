@@ -59,7 +59,7 @@ function usePulse() {
 // producing a constant ~1ms artifact instead of a real network RTT.
 const TARGET_HOSTS: Record<string, string> = {
   'Google': '8.8.8.8',
-  'Hutch': '45.121.90.9',
+  'Hutch': 'hutch.lk',
   'Dialog': '122.255.3.98',
   'Mobitel': '124.6.249.132',
   'Airtel': '122.255.41.211',

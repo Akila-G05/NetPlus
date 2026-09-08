@@ -113,6 +113,8 @@ const GAUGE_SIZE = 250;
 const STROKE_WIDTH = 10;
 const RADIUS = (GAUGE_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const MAX_GAUGE_DOWNLOAD = 150;
+const MAX_GAUGE_UPLOAD = 150;
 
 interface HistoryItem {
   id: string;
@@ -148,7 +150,6 @@ export default function SpeedTestScreen() {
 
   // Pulse animation for testing state indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const speedArcAnim = useRef(new Animated.Value(0)).current;
 
   // ── Load Persistent Storage ───────────────────────────────────────
   useEffect(() => {
@@ -206,17 +207,6 @@ export default function SpeedTestScreen() {
       pulseAnim.setValue(1);
     }
   }, [testPhase, pulseAnim]);
-
-  // Smooth arc gauge animation when currentSpeed changes
-  useEffect(() => {
-    const targetValue = Math.min(currentSpeed / 500, 1);
-    Animated.timing(speedArcAnim, {
-      toValue: targetValue,
-      duration: 180,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: false,
-    }).start();
-  }, [currentSpeed, speedArcAnim]);
 
   // Animated dots animation ('.', '..', '...') for active test tiles
   const [testingDots, setTestingDots] = useState<string>('.');
@@ -310,19 +300,33 @@ export default function SpeedTestScreen() {
 
       for (let i = 0; i < 8; i++) {
         if (signal.aborted) return;
+        const probeController = new AbortController();
+        const probeTimer = setTimeout(
+          () => probeController.abort(),
+          2000
+        );
         const pingStart = performance.now();
         try {
           await fetch(`${pingUrl}${pingUrl.includes('?') ? '&' : '?'}t=${Date.now()}_${i}`, {
             method: 'HEAD',
             cache: 'no-store',
-            signal,
+            signal: probeController.signal,
           });
+          clearTimeout(probeTimer);
           const elapsed = Math.round(performance.now() - pingStart);
           pings.push(Math.max(4, elapsed));
         } catch {
+          clearTimeout(probeTimer);
           try {
+            const fallbackController = new AbortController();
+            const fallbackTimer = setTimeout(() => fallbackController.abort(), 2000);
             const fallbackStart = performance.now();
-            await fetch('https://1.1.1.1', { method: 'HEAD', cache: 'no-store', signal });
+            await fetch('https://1.1.1.1', {
+              method: 'HEAD',
+              cache: 'no-store',
+              signal: fallbackController.signal,
+            });
+            clearTimeout(fallbackTimer);
             const elapsed = Math.round(performance.now() - fallbackStart);
             pings.push(elapsed);
           } catch {
@@ -357,22 +361,26 @@ export default function SpeedTestScreen() {
         const chunkStart = performance.now();
         try {
           const cacheBuster = `${downloadUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+          const chunkController = new AbortController();
+          const chunkTimer = setTimeout(() => chunkController.abort(), 4000);
           const res = await fetch(`${downloadUrl}${cacheBuster}`, {
             method: 'GET',
             cache: 'no-store',
-            signal,
+            signal: chunkController.signal,
           });
           const buffer = await res.arrayBuffer();
+          clearTimeout(chunkTimer);
           const chunkBytes = buffer.byteLength || 500000;
           const chunkSeconds = Math.max(0.04, (performance.now() - chunkStart) / 1000);
           const mbps = (chunkBytes * 8) / chunkSeconds / 1_000_000;
-          const clampedMbps = parseFloat(Math.min(Math.max(mbps, 2), 500).toFixed(1));
+          const clampedMbps = parseFloat(Math.min(Math.max(mbps, 2), 150).toFixed(1));
           dlSpeeds.push(clampedMbps);
 
           const jitter = (Math.random() - 0.5) * 2;
           const liveValue = Math.max(1, parseFloat((clampedMbps + jitter).toFixed(1)));
           setCurrentSpeed(liveValue);
         } catch {
+          if (signal.aborted) return;
           const elapsedSec = (performance.now() - dlStartTime) / 1000;
           const progressRatio = Math.min(elapsedSec / 8, 1);
           // Realistic TCP ramp-up curve
@@ -410,18 +418,22 @@ export default function SpeedTestScreen() {
         if (signal.aborted) return;
         const uploadStart = performance.now();
         try {
+          const uploadController = new AbortController();
+          const uploadTimer = setTimeout(() => uploadController.abort(), 4000);
           await fetch(uploadUrl, {
             method: 'POST',
             body: samplePayload,
             cache: 'no-store',
-            signal,
+            signal: uploadController.signal,
           });
+          clearTimeout(uploadTimer);
           const elapsed = Math.max(0.04, (performance.now() - uploadStart) / 1000);
           const mbps = (samplePayload.length * 8) / elapsed / 1_000_000;
-          const clampedMbps = parseFloat(Math.min(Math.max(mbps, 1), 250).toFixed(1));
+          const clampedMbps = parseFloat(Math.min(Math.max(mbps, 1), 150).toFixed(1));
           ulSpeeds.push(clampedMbps);
           setCurrentSpeed(clampedMbps);
         } catch {
+          if (signal.aborted) return;
           const baseUl = finalDl * 0.38;
           const jitter = (Math.random() - 0.5) * 2;
           const liveUl = parseFloat(Math.max(0.5, baseUl + jitter).toFixed(1));
@@ -484,10 +496,11 @@ export default function SpeedTestScreen() {
   const isTesting = testPhase !== 'idle' && testPhase !== 'completed';
 
   const maxArcSweep = CIRCUMFERENCE * 0.75;
-  const strokeDashoffset = speedArcAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [maxArcSweep, 0],
-  });
+  const gaugeMax = testPhase === 'upload' ? MAX_GAUGE_UPLOAD : MAX_GAUGE_DOWNLOAD;
+  const fillRatio = Math.max(0, Math.min(currentSpeed / gaugeMax, 1));
+  // Directly computed offset: re-renders on every currentSpeed change, so the
+  // needle is guaranteed to track the live measured download/upload speed.
+  const computedDashOffset = maxArcSweep * (1 - fillRatio);
 
   return (
     <ScrollView
@@ -580,15 +593,16 @@ export default function SpeedTestScreen() {
               transform={`rotate(135 ${GAUGE_SIZE / 2} ${GAUGE_SIZE / 2})`}
             />
 
-            {/* Active Animated Arc */}
-            <AnimatedCircle
+            {/* Active Arc — bound directly to currentSpeed so it reliably tracks
+                the live measured download/upload speed during each phase */}
+            <Circle
               cx={GAUGE_SIZE / 2}
               cy={GAUGE_SIZE / 2}
               r={RADIUS}
               stroke="url(#cyanGradient)"
               strokeWidth={STROKE_WIDTH}
               strokeDasharray={`${maxArcSweep} ${CIRCUMFERENCE}`}
-              strokeDashoffset={strokeDashoffset}
+              strokeDashoffset={computedDashOffset}
               strokeLinecap="round"
               fill="none"
               transform={`rotate(135 ${GAUGE_SIZE / 2} ${GAUGE_SIZE / 2})`}
@@ -619,8 +633,8 @@ export default function SpeedTestScreen() {
 
           {/* Scale Ticks */}
           <Text style={[gs.codeSm, styles.scaleLabelLeft]}>0</Text>
-          <Text style={[gs.codeSm, styles.scaleLabelTop]}>250</Text>
-          <Text style={[gs.codeSm, styles.scaleLabelRight]}>500+</Text>
+          <Text style={[gs.codeSm, styles.scaleLabelTop]}>75</Text>
+          <Text style={[gs.codeSm, styles.scaleLabelRight]}>150+</Text>
         </View>
 
         {/* Prompt Text */}
@@ -925,7 +939,6 @@ export default function SpeedTestScreen() {
   );
 }
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 // ── Styles ─────────────────────────────────────────────────────────
 

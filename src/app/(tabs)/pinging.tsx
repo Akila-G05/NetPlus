@@ -54,14 +54,15 @@ function usePulse() {
 }
 
 // ── Ping helpers ─────────────────────────────────────────
+// Real ISP infrastructure IPs (not CDN/portal domains). The old portal domains
+// resolve to CDN/Imperva edges inside Sri Lanka that answer from local caches,
+// producing a constant ~1ms artifact instead of a real network RTT.
 const TARGET_HOSTS: Record<string, string> = {
   'Google': '8.8.8.8',
-  'Google DNS': '8.8.8.8',
-  'Hutch': 'oneapp.hutch.lk',
-  'Dialog': 'selfcare.dialog.lk',
-  'Mobitel': 'mas.mobitel.lk',
-  'Mobitel / SLT': 'mas.mobitel.lk',
-  'Airtel': 'my.airtel.lk',
+  'Hutch': '45.121.90.9',
+  'Dialog': '122.255.3.98',
+  'Mobitel': '124.6.249.132',
+  'Airtel': '122.255.41.211',
 };
 
 function sanitizeHost(input: string): string {
@@ -100,7 +101,7 @@ const PING_METHOD_KEY = '@netplus/ping-method';
 const BATTERY_TIP_KEY = '@netplus/battery-tip-shown';
 const DEFAULT_TARGET = 'Google';
 const DEFAULT_INTERVAL = '5000 ms (5s)';
-const DEFAULT_PING_METHOD: PingMethod = 'http';
+const DEFAULT_PING_METHOD: PingMethod = 'icmp';
 
 const targetOptions = [
   'Google',
@@ -814,9 +815,9 @@ export default function PingingScreen() {
 
               <SettingsRow label="Ping Method" bordered>
                 <SimpleSelect
-                  options={['HTTP (Recommended)', 'ICMP']}
-                  selectedOption={pingMethod === 'http' ? 'HTTP (Recommended)' : 'ICMP'}
-                  onSelect={(opt) => setPingMethod(opt === 'HTTP (Recommended)' ? 'http' : 'icmp')}
+                  options={['ICMP (Recommended)', 'HTTP']}
+                  selectedOption={pingMethod === 'icmp' ? 'ICMP (Recommended)' : 'HTTP'}
+                  onSelect={(opt) => setPingMethod(opt === 'ICMP (Recommended)' ? 'icmp' : 'http')}
                 />
               </SettingsRow>
 

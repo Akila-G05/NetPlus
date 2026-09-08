@@ -57,6 +57,12 @@ class NetPlusPingForegroundService : Service() {
         internal val TIME_REGEX = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
         internal val RTT_REGEX = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
 
+        // Minimum valid latency before a sample is trusted. Values below this
+        // are CDN/cache/loopback artifacts (e.g. the old constant "1ms") and
+        // are rejected so pinging reports real network RTTs.
+        private const val MIN_ICMP_LATENCY_MS = 2.0
+        internal const val MIN_HTTP_LATENCY_MS = 5.0
+
         fun cleanHost(rawHost: String): String {
             return rawHost.trim()
                 .replace(SCHEME_REGEX, "")
@@ -327,21 +333,20 @@ class NetPlusPingForegroundService : Service() {
 
             val output = process.inputStream.bufferedReader().use { it.readText() }
 
+            // Anti-artifact floor: reject sub-2ms RTTs so local/cache replies
+            // never surface as a fake "1ms" ping.
             val timeMatch = TIME_REGEX.find(output)
             if (timeMatch != null) {
                 val valMs = timeMatch.groupValues[1].toDoubleOrNull()
-                if (valMs != null && valMs > 0) return valMs
+                if (valMs != null && valMs >= MIN_ICMP_LATENCY_MS) return valMs
             }
 
             val rttMatch = RTT_REGEX.find(output)
             val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
-            if (rttMs != null && rttMs > 0) return rttMs
+            if (rttMs != null && rttMs >= MIN_ICMP_LATENCY_MS) return rttMs
 
-            if (output.contains("1 received", ignoreCase = true) ||
-                output.contains("0% packet loss", ignoreCase = true) ||
-                output.contains("0% loss", ignoreCase = true)) {
-                1.0
-            } else null
+            // No valid RTT parsed — report a failure, never fabricate.
+            null
         } catch (_: Exception) {
             null
         }
@@ -370,7 +375,9 @@ class NetPlusPingForegroundService : Service() {
             conn.disconnect()
 
             val latency = (System.currentTimeMillis() - start).toDouble()
-            if (code in 200..399) latency else null
+            // Discard sub-floor RTTs (CDN-local cache hits measure ~1ms, not a
+            // real network RTT) so HTTP pinging reports realistic latencies.
+            if (code in 200..399 && latency >= MIN_HTTP_LATENCY_MS) latency else null
         } catch (_: Exception) {
             null
         }

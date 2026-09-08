@@ -170,21 +170,19 @@ class NetPlusPingModule : Module() {
 
       val output = process.inputStream.bufferedReader().use { it.readText() }
 
+      // Anti-artifact floor: reject sub-2ms RTTs (returns from local caches /
+      // loopback / trivial replies) so they never surface as a fake "1ms" ping.
       val timeMatch = NetPlusPingForegroundService.TIME_REGEX.find(output)
       if (timeMatch != null) {
         val valMs = timeMatch.groupValues[1].toDoubleOrNull()
-        if (valMs != null && valMs > 0) return valMs
+        if (valMs != null && valMs >= 2.0) return valMs
       }
 
       val rttMatch = NetPlusPingForegroundService.RTT_REGEX.find(output)
       val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
-      if (rttMs != null && rttMs > 0) return rttMs
+      if (rttMs != null && rttMs >= 2.0) return rttMs
 
-      if (output.contains("1 received", ignoreCase = true) ||
-          output.contains("0% packet loss", ignoreCase = true) ||
-          output.contains("0% loss", ignoreCase = true)) {
-        return 1.0
-      }
+      // No valid RTT parsed — never fabricate a latency. Report a failure instead.
     } catch (e: Exception) {
       e.printStackTrace()
     }

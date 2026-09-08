@@ -27,16 +27,32 @@ class NetPlusPingModule : Module() {
         )
       )
     }
+
+    fun emitSpeedTestProgress(phase: Int, current: Double, pingMs: Int, dl: Double, ul: Double) {
+      instance?.sendEvent(
+        "onSpeedTestProgress",
+        mapOf(
+          "phase" to phase,
+          "currentMbps" to current,
+          "pingMs" to pingMs,
+          "downloadMbps" to dl,
+          "uploadMbps" to ul
+        )
+      )
+    }
   }
 
   override fun definition() = ModuleDefinition {
     Name("NetPlusPing")
-    Events("onPingResult")
+    Events("onPingResult", "onSpeedTestProgress")
 
     OnCreate {
       instance = this@NetPlusPingModule
       NetPlusPingForegroundService.listener = { host, latency, sent, recv, fail ->
         emitPingResult(host, latency, sent, recv, fail)
+      }
+      NetPlusSpeedTestForegroundService.listener = { phase, current, pingMs, dl, ul ->
+        emitSpeedTestProgress(phase, current, pingMs, dl, ul)
       }
     }
 
@@ -141,6 +157,54 @@ class NetPlusPingModule : Module() {
         it.printStackTrace()
         false
       }
+    }
+
+    // ── Background speed test ───────────────────────────────────────
+    AsyncFunction("startSpeedTest") { pingEndpoint: String, downloadEndpoint: String, uploadEndpoint: String, serverName: String, title: String, body: String ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      try {
+        NetPlusSpeedTestForegroundService.reset()
+        val intent = Intent(context, NetPlusSpeedTestForegroundService::class.java).apply {
+          action = NetPlusSpeedTestForegroundService.ACTION_START
+          putExtra(NetPlusSpeedTestForegroundService.EXTRA_PING_ENDPOINT, pingEndpoint)
+          putExtra(NetPlusSpeedTestForegroundService.EXTRA_DOWNLOAD_ENDPOINT, downloadEndpoint)
+          putExtra(NetPlusSpeedTestForegroundService.EXTRA_UPLOAD_ENDPOINT, uploadEndpoint)
+          putExtra(NetPlusSpeedTestForegroundService.EXTRA_SERVER_NAME, serverName)
+          putExtra(NetPlusSpeedTestForegroundService.EXTRA_TITLE, title)
+          putExtra(NetPlusSpeedTestForegroundService.EXTRA_BODY, body)
+        }
+        ContextCompat.startForegroundService(context, intent)
+        true
+      } catch (e: Exception) {
+        e.printStackTrace()
+        false
+      }
+    }
+
+    AsyncFunction("stopSpeedTest") {
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      try {
+        val intent = Intent(context, NetPlusSpeedTestForegroundService::class.java).apply {
+          action = NetPlusSpeedTestForegroundService.ACTION_STOP
+        }
+        context.startService(intent)
+        true
+      } catch (e: Exception) {
+        e.printStackTrace()
+        false
+      }
+    }
+
+    AsyncFunction("getSpeedTestResult") {
+      mapOf(
+        "isRunning" to NetPlusSpeedTestForegroundService.isRunning,
+        "phase" to NetPlusSpeedTestForegroundService.phase,
+        "currentMbps" to NetPlusSpeedTestForegroundService.currentMbps,
+        "pingMs" to NetPlusSpeedTestForegroundService.pingMs,
+        "downloadMbps" to NetPlusSpeedTestForegroundService.downloadMbps,
+        "uploadMbps" to NetPlusSpeedTestForegroundService.uploadMbps,
+        "serverName" to NetPlusSpeedTestForegroundService.serverName
+      )
     }
   }
 

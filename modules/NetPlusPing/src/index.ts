@@ -22,6 +22,31 @@ export interface BackgroundPingStats {
   lastLatency: number;
 }
 
+export interface SpeedTestProgressEvent {
+  phase: number;
+  currentMbps: number;
+  pingMs: number;
+  downloadMbps: number;
+  uploadMbps: number;
+}
+
+export interface SpeedTestResult {
+  isRunning: boolean;
+  phase: number;
+  currentMbps: number;
+  pingMs: number;
+  downloadMbps: number;
+  uploadMbps: number;
+  serverName: string;
+}
+
+export const SpeedTestPhase = {
+  PING: 0,
+  DOWNLOAD: 1,
+  UPLOAD: 2,
+  COMPLETE: 3,
+} as const;
+
 export function isNetPlusPingAvailable(): boolean {
   return !!NetPlusPing && typeof NetPlusPing.ping === 'function';
 }
@@ -76,6 +101,47 @@ export async function getBackgroundStats(): Promise<BackgroundPingStats | null> 
 export function addPingResultListener(listener: (event: PingResultEvent) => void) {
   if (!emitter) return { remove: () => {} };
   return (emitter as any).addListener('onPingResult', listener);
+}
+
+// ── Background speed test ─────────────────────────────────────
+
+export async function startSpeedTestInBackground(
+  pingEndpoint: string,
+  downloadEndpoint: string,
+  uploadEndpoint: string,
+  serverName: string,
+  title: string = 'NetPlus Speed Test',
+  body: string = 'Running speed test...'
+): Promise<boolean> {
+  if (!NetPlusPing || typeof NetPlusPing.startSpeedTest !== 'function') return false;
+  try {
+    return await NetPlusPing.startSpeedTest(pingEndpoint, downloadEndpoint, uploadEndpoint, serverName, title, body);
+  } catch {
+    return false;
+  }
+}
+
+export async function stopSpeedTestInBackground(): Promise<boolean> {
+  if (!NetPlusPing || typeof NetPlusPing.stopSpeedTest !== 'function') return false;
+  try {
+    return await NetPlusPing.stopSpeedTest();
+  } catch {
+    return false;
+  }
+}
+
+export async function getSpeedTestResult(): Promise<SpeedTestResult | null> {
+  if (!NetPlusPing || typeof NetPlusPing.getSpeedTestResult !== 'function') return null;
+  try {
+    return await NetPlusPing.getSpeedTestResult();
+  } catch {
+    return null;
+  }
+}
+
+export function addSpeedTestProgressListener(listener: (event: SpeedTestProgressEvent) => void) {
+  if (!emitter) return { remove: () => {} };
+  return (emitter as any).addListener('onSpeedTestProgress', listener);
 }
 
 export async function isIgnoringBatteryOptimizations(): Promise<boolean> {

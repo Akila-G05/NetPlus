@@ -16,6 +16,7 @@ import {
   Easing,
   Modal,
   FlatList,
+  AppState,
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -24,6 +25,14 @@ import * as Haptics from 'expo-haptics';
 import { Colors, FontFamily, Spacing, BorderRadius } from '@/constants/theme';
 import { notificationService } from '@/services/NotificationService';
 import { gs } from '@/styles/globalStyles';
+import {
+  addSpeedTestProgressListener,
+  SpeedTestPhase,
+  stopSpeedTestInBackground,
+  startSpeedTestInBackground,
+  getSpeedTestResult,
+  requestIgnoreBatteryOptimizations,
+} from 'netplus-ping';
 
 export interface SpeedTestServer {
   id: string;
@@ -148,6 +157,14 @@ export default function SpeedTestScreen() {
   // Controller for canceling
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Latest known results (refs) so out-of-order progress events don't clobber
+  // a finished test; also used to persist history after native completion.
+  const pingResultRef = useRef<number | null>(null);
+  const downloadResultRef = useRef<number | null>(null);
+  const uploadResultRef = useRef<number | null>(null);
+  const serverNameRef = useRef<string | null>(null);
+  const didPersistHistoryRef = useRef(false);
+
   // Pulse animation for testing state indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -253,6 +270,10 @@ export default function SpeedTestScreen() {
     setPingResult(null);
     setDownloadResult(null);
     setUploadResult(null);
+    pingResultRef.current = null;
+    downloadResultRef.current = null;
+    uploadResultRef.current = null;
+    didPersistHistoryRef.current = false;
 
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
@@ -293,7 +314,29 @@ export default function SpeedTestScreen() {
         ? `${activeTargetServer.name} (Auto)`
         : activeTargetServer.name;
       setLastSelectedServerName(activeServerName);
+      serverNameRef.current = activeServerName;
 
+      // ── NATIVE BACKGROUND PATH ─────────────────────────────────
+      // Start the native foreground service so the speed test keeps running
+      // (and measuring) even when the app is minimized / backgrounded.
+      // Also request battery-optimization exemption so Doze doesn't throttle
+      // the background network traffic during the test.
+      requestIgnoreBatteryOptimizations().catch(() => {});
+      const nativeStarted = await startSpeedTestInBackground(
+        activeTargetServer.pingEndpoint,
+        activeTargetServer.downloadEndpoint,
+        activeTargetServer.uploadEndpoint,
+        activeServerName,
+        'NetPlus Speed Test',
+        `Testing ${activeServerName}...`
+      );
+      if (nativeStarted) {
+        // Native service owns measurement; progress events drive the UI.
+        setTestPhase('ping');
+        return;
+      }
+
+      // ── JS FALLBACK PATH (native module unavailable, e.g. Expo Go) ──
       // 1. PING PHASE (8 Probes for Latency Accuracy & Outlier Filtering)
       let pings: number[] = [];
       const pingUrl = activeTargetServer.pingEndpoint;
@@ -487,9 +530,126 @@ export default function SpeedTestScreen() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    stopSpeedTestInBackground().catch(() => {});
     setTestPhase('idle');
     setCurrentSpeed(0);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
+  // ── Native background speed test: progress events + foreground sync ──
+  const finishNativeTest = useCallback((dl: number, ul: number, pg: number) => {
+    // Guard against a falsely-reported 0 Mbps download: prefer the highest
+    // observed value so a slow/failed tail never resets the result to zero.
+    const dlVal = dl > 0 ? dl : (downloadResultRef.current ?? 0);
+    const ulVal = ul > 0 ? ul : (uploadResultRef.current ?? 0);
+    const pgVal = pg > 0 ? pg : (pingResultRef.current ?? 0);
+    downloadResultRef.current = dlVal;
+    uploadResultRef.current = ulVal;
+    pingResultRef.current = pgVal;
+
+    setTestPhase('completed');
+    setCurrentSpeed(dlVal);
+    setDownloadResult(dlVal);
+    setUploadResult(ulVal);
+    setPingResult(pgVal);
+    setLastSelectedServerName(serverNameRef.current || 'NetPlus');
+
+    if (!didPersistHistoryRef.current) {
+      didPersistHistoryRef.current = true;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      notificationService.notifySpeedTestComplete(dlVal, ulVal, pgVal, serverNameRef.current || undefined);
+      const nowStr = `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      const newHistoryItem: HistoryItem = {
+        id: Date.now().toString(),
+        date: nowStr,
+        ping: pgVal,
+        download: dlVal,
+        upload: ulVal,
+        serverName: serverNameRef.current || 'NetPlus',
+      };
+      setTestHistory((prev) => {
+        const updated = [newHistoryItem, ...prev];
+        AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated.slice(0, 30))).catch(() => {});
+        return updated;
+      });
+    }
+  }, []);
+
+  const syncNativeResult = useCallback(async () => {
+    try {
+      const res = await getSpeedTestResult();
+      if (!res) return;
+      if (res.pingMs > 0) {
+        setPingResult(res.pingMs);
+        pingResultRef.current = res.pingMs;
+      }
+      if (res.downloadMbps > 0) setDownloadResult(res.downloadMbps);
+      if (res.uploadMbps > 0) setUploadResult(res.uploadMbps);
+      if (res.currentMbps > 0) {
+        setCurrentSpeed(res.currentMbps);
+        if (res.isRunning && res.phase === SpeedTestPhase.DOWNLOAD) {
+          downloadResultRef.current = Math.max(downloadResultRef.current ?? 0, res.currentMbps);
+        } else if (res.isRunning && res.phase === SpeedTestPhase.UPLOAD) {
+          uploadResultRef.current = Math.max(uploadResultRef.current ?? 0, res.currentMbps);
+        }
+      }
+      if (res.serverName) serverNameRef.current = res.serverName;
+      if (res.isRunning && res.phase === SpeedTestPhase.PING) setTestPhase('ping');
+      else if (res.isRunning && res.phase === SpeedTestPhase.DOWNLOAD) setTestPhase('download');
+      else if (res.isRunning && res.phase === SpeedTestPhase.UPLOAD) setTestPhase('upload');
+      else if (!res.isRunning && res.phase === SpeedTestPhase.COMPLETE) {
+        finishNativeTest(res.downloadMbps, res.uploadMbps, res.pingMs);
+      }
+    } catch {
+      // Ignore
+    }
+  }, [finishNativeTest]);
+
+  useEffect(() => {
+    // Live updates while the native service measures (foreground & background).
+    const progressSub = addSpeedTestProgressListener((event) => {
+      if (event.phase === SpeedTestPhase.PING) {
+        setTestPhase('ping');
+        if (event.pingMs > 0) {
+          setPingResult(event.pingMs);
+          pingResultRef.current = event.pingMs;
+        }
+      } else if (event.phase === SpeedTestPhase.DOWNLOAD) {
+        setTestPhase('download');
+        setCurrentSpeed(event.currentMbps);
+        // Native progress events carry downloadMbps=0.0 until completion, so
+        // track the live positive reading as the non-zero fallback.
+        if (event.currentMbps > 0) {
+          downloadResultRef.current = Math.max(downloadResultRef.current ?? 0, event.currentMbps);
+        }
+        if (event.downloadMbps > 0) setDownloadResult(event.downloadMbps);
+      } else if (event.phase === SpeedTestPhase.UPLOAD) {
+        setTestPhase('upload');
+        setCurrentSpeed(event.currentMbps);
+        if (event.currentMbps > 0) {
+          uploadResultRef.current = Math.max(uploadResultRef.current ?? 0, event.currentMbps);
+        }
+        if (event.uploadMbps > 0) setUploadResult(event.uploadMbps);
+      } else if (event.phase === SpeedTestPhase.COMPLETE) {
+        const dl = event.downloadMbps > 0 ? event.downloadMbps : (downloadResultRef.current ?? 0);
+        const ul = event.uploadMbps > 0 ? event.uploadMbps : (uploadResultRef.current ?? 0);
+        const pg = event.pingMs > 0 ? event.pingMs : (pingResultRef.current ?? 0);
+        finishNativeTest(dl, ul, pg);
+      }
+    });
+
+    // When the app returns to the foreground, sync with the native result.
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncNativeResult();
+      }
+    });
+
+    return () => {
+      progressSub.remove();
+      appStateSub.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Render Helpers ────────────────────────────────────────────────

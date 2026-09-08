@@ -2,6 +2,8 @@
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application>
         <receiver
@@ -15,6 +17,16 @@
                 <action android:name="expo.modules.netplusping.RESTART_PING" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name="expo.modules.netplusping.NetPlusSpeedTestForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="network speed test" />
+        </service>
     </application>
 
 </manifest>

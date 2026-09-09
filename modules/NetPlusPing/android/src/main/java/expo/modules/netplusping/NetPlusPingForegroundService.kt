@@ -80,6 +80,14 @@ class NetPlusPingForegroundService : Service() {
 
         internal const val MIN_HTTP_LATENCY_MS = 5.0
 
+        // Z-Pinger parity: portal targets (e.g. oneapp.hutch.lk) sit behind
+        // WAFs that challenge bare Java HttpURLConnections and can stall
+        // first-byte delivery — allow up to 60s and identify as a normal
+        // Android app so the request clears the WAF instead of being 403'd.
+        internal const val MAX_HTTP_TIMEOUT_MS = 60_000
+        internal const val HTTP_USER_AGENT =
+            "Dalvik/2.1.0 (Linux; U; Android 12; SM-G991B Build/SP1A.210812.016)"
+
         fun cleanHost(rawHost: String): String {
             return rawHost.trim()
                 .replace(SCHEME_REGEX, "")
@@ -582,8 +590,9 @@ class NetPlusPingForegroundService : Service() {
             val url = URL(targetUrlStr)
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.connectTimeout = timeoutMs
-            conn.readTimeout = timeoutMs
+            conn.setRequestProperty("User-Agent", HTTP_USER_AGENT)
+            conn.connectTimeout = MAX_HTTP_TIMEOUT_MS
+            conn.readTimeout = MAX_HTTP_TIMEOUT_MS
             conn.instanceFollowRedirects = true
             conn.connect()
             val code = conn.responseCode

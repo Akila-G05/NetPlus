@@ -17,6 +17,7 @@ import {
   isIgnoringBatteryOptimizations,
   startContinuousPing,
   stopContinuousPing,
+  type PingResultEvent,
 } from 'netplus-ping';
 import { useBatteryOnboarding } from '@/components/BatteryOnboarding';
 import { useFocusEffect } from 'expo-router';
@@ -117,12 +118,10 @@ const targetOptions = [
 ];
 
 const intervalOptions = [
-  '3000 ms (3s)',
   '5000 ms (5s)',
   '10000 ms (10s)',
   '15000 ms (15s)',
   '30000 ms (30s)',
-  '60000 ms (60s)',
   RELAX_OPTION,
 ];
 
@@ -136,6 +135,28 @@ const EMPTY_STATS: PingStats = {
   sent: 0,
   recv: 0,
   fail: 0,
+};
+
+// Incremental aggregate accumulator — mirrors the native persisted stats
+// (single source of truth) so aggregates survive restarts & session adoption.
+interface PingAggregator {
+  sum: number;
+  count: number;
+  min: number;
+  max: number;
+  jitterSum: number;
+  jitterCount: number;
+  prevLatency: number;
+}
+
+const EMPTY_AGG: PingAggregator = {
+  sum: 0,
+  count: 0,
+  min: Number.MAX_SAFE_INTEGER,
+  max: 0,
+  jitterSum: 0,
+  jitterCount: 0,
+  prevLatency: -1,
 };
 
 const COOLDOWN_MS = 3 * 60 * 1000;
@@ -168,6 +189,28 @@ function formatTimeStamp(date: Date): string {
   return `${hh}:${mm}:${ss}`;
 }
 
+function seedAggFromStats(s: {
+  avg: number;
+  recv: number;
+  min: number;
+  max: number;
+  lastLatency: number;
+  jitter: number;
+}): PingAggregator {
+  const recv = s.recv || 0;
+  const jitter = s.jitter ?? 0;
+  const prevLatency = s.lastLatency > 0 ? s.lastLatency : -1;
+  return {
+    sum: recv > 0 ? s.avg * recv : 0,
+    count: recv,
+    min: s.min > 0 ? s.min : Number.MAX_SAFE_INTEGER,
+    max: s.max,
+    jitterSum: jitter > 0 ? jitter * Math.max(recv - 1, 0) : 0,
+    jitterCount: jitter > 0 ? Math.max(recv - 1, 0) : 0,
+    prevLatency,
+  };
+}
+
 // Ping method types
 type PingMethod = 'icmp' | 'http';
 
@@ -194,7 +237,7 @@ export default function PingingScreen() {
   const [logEntries, setLogEntries] = useState<PingLogEntry[]>([]);
 
   const sessionRef = useRef<PingSession>({ active: false });
-  const latenciesRef = useRef<number[]>([]);
+  const aggRef = useRef<PingAggregator>({ ...EMPTY_AGG });
   const logEnabledRef = useRef(LOG_ENABLED_DEFAULT);
   const adLoaded = useRef(false);
   const adIsLoading = useRef(false);
@@ -387,11 +430,15 @@ export default function PingingScreen() {
     const lossPct = sent > 0 ? Math.round((fail / sent) * 100) : 0;
     const successPct = sent > 0 ? Math.round((recv / sent) * 100) : 0;
 
+    // Re-seed the incremental accumulator from the native (persisted) source
+    // of truth so live aggregates keep continuing, not restarting.
+    aggRef.current = seedAggFromStats(bgStats);
+
     setStats({
-      min: bgStats.min,
+      min: bgStats.min > 0 ? bgStats.min : 0,
       max: bgStats.max,
       avg: bgStats.avg,
-      jitter: 0,
+      jitter: bgStats.jitter ?? 0,
       lossPct,
       successPct,
       sent,
@@ -414,6 +461,66 @@ export default function PingingScreen() {
     return () => subscription.remove();
   }, [syncBackgroundStats]);
 
+  // Shared stats pipeline for live events (used by both new and adopted sessions).
+  const handlePingResult = useCallback((event: PingResultEvent, session: PingSession) => {
+    if (!session.active) return;
+
+    dataUsageTracker.recordPingResult(event.latency > 0);
+
+    if (logEnabledRef.current) {
+      setLogEntries((prev) =>
+        [
+          {
+            time: formatTimeStamp(new Date()),
+            host: event.host,
+            latency: event.latency > 0 ? event.latency : null,
+          },
+          ...prev,
+        ].slice(0, MAX_LOG_ENTRIES)
+      );
+    }
+
+    if (event.latency > 0) {
+      const latency = Math.min(event.latency, MAX_PING_MS);
+      setCurrentLatency(latency);
+
+      // Incremental aggregates — identical math to a full sample recompute,
+      // but seeded from the native persisted baseline on restore/adoption.
+      const agg = aggRef.current;
+      agg.count += 1;
+      agg.sum += latency;
+      agg.min = Math.min(agg.min, latency);
+      agg.max = Math.max(agg.max, latency);
+      if (agg.prevLatency > 0) {
+        agg.jitterSum += Math.abs(latency - agg.prevLatency);
+        agg.jitterCount += 1;
+      }
+      agg.prevLatency = latency;
+
+      setStats({
+        min: agg.min === Number.MAX_SAFE_INTEGER ? 0 : Math.round(agg.min),
+        max: Math.round(agg.max),
+        avg: Math.round(agg.sum / agg.count),
+        jitter: agg.jitterCount > 0 ? Math.round(agg.jitterSum / agg.jitterCount) : 0,
+        lossPct: event.sent > 0 ? Math.round((event.fail / event.sent) * 100) : 0,
+        successPct: event.sent > 0 ? Math.round((event.recv / event.sent) * 100) : 0,
+        sent: event.sent,
+        recv: event.recv,
+        fail: event.fail,
+      });
+    } else {
+      setCurrentLatency(null);
+      setStats((prev) => ({
+        ...prev,
+        lossPct: event.sent > 0 ? Math.round((event.fail / event.sent) * 100) : 0,
+        successPct: event.sent > 0 ? Math.round((event.recv / event.sent) * 100) : 0,
+        sent: event.sent,
+        recv: event.recv,
+        fail: event.fail,
+      }));
+    }
+  }, []);
+
   const startPing = useCallback(() => {
     const host = resolveHost(targetConnection, customHost);
     if (!host) return;
@@ -430,7 +537,7 @@ export default function PingingScreen() {
     sessionRef.current.active = false;
 
     dataUsageTracker.setPingingActive(true);
-    latenciesRef.current = [];
+    aggRef.current = { ...EMPTY_AGG };
     setCurrentLatency(null);
     setStats(EMPTY_STATS);
     setLogEntries([]);
@@ -456,61 +563,53 @@ export default function PingingScreen() {
     ).catch(() => { });
 
     // Subscribe to native ping results — single source of truth for all stats.
-    const sub = addPingResultListener((event) => {
-      if (!session.active) return;
+    sessionRef.current.subscription = addPingResultListener((event) =>
+      handlePingResult(event, session)
+    );
+  }, [targetConnection, customHost, pingInterval, pingMethod, loadInterstitial, handlePingResult]);
 
-      dataUsageTracker.recordPingResult(event.latency > 0);
+  // Adopt a native session that survived a JS process restart: restore the
+  // persisted stats, resume live events, and show the session as running.
+  const adoptRunningSession = useCallback(async () => {
+    if (sessionRef.current.active) return;
+    const bgStats = await getBackgroundStats();
+    if (!bgStats || sessionRef.current.active) return;
+    if (!bgStats.isRunning && bgStats.sent === 0) return;
 
-      if (logEnabledRef.current) {
-        setLogEntries((prev) =>
-          [
-            {
-              time: formatTimeStamp(new Date()),
-              host: event.host,
-              latency: event.latency > 0 ? event.latency : null,
-            },
-            ...prev,
-          ].slice(0, MAX_LOG_ENTRIES)
-        );
-      }
+    aggRef.current = seedAggFromStats(bgStats);
 
-      if (event.latency > 0) {
-        const latency = Math.min(event.latency, MAX_PING_MS);
-        setCurrentLatency(latency);
-        const samples = [...latenciesRef.current, latency];
-        latenciesRef.current = samples;
-        let jitterSum = 0;
-        for (let i = 1; i < samples.length; i++) {
-          jitterSum += Math.abs(samples[i] - samples[i - 1]);
-        }
-        setStats({
-          min: Math.round(Math.min(...samples)),
-          max: Math.round(Math.max(...samples)),
-          avg: Math.round(samples.reduce((a, b) => a + b, 0) / samples.length),
-          jitter:
-            samples.length > 1
-              ? Math.round(jitterSum / (samples.length - 1))
-              : 0,
-          lossPct: event.sent > 0 ? Math.round((event.fail / event.sent) * 100) : 0,
-          successPct: event.sent > 0 ? Math.round((event.recv / event.sent) * 100) : 0,
-          sent: event.sent,
-          recv: event.recv,
-          fail: event.fail,
-        });
-      } else {
-        setCurrentLatency(null);
-        setStats((prev) => ({
-          ...prev,
-          lossPct: event.sent > 0 ? Math.round((event.fail / event.sent) * 100) : 0,
-          successPct: event.sent > 0 ? Math.round((event.recv / event.sent) * 100) : 0,
-          sent: event.sent,
-          recv: event.recv,
-          fail: event.fail,
-        }));
-      }
+    const sent = bgStats.sent;
+    const lossPct = sent > 0 ? Math.round((bgStats.fail / sent) * 100) : 0;
+    const successPct = sent > 0 ? Math.round((bgStats.recv / sent) * 100) : 0;
+    setStats({
+      min: bgStats.min > 0 ? bgStats.min : 0,
+      max: bgStats.max,
+      avg: bgStats.avg,
+      jitter: bgStats.jitter ?? 0,
+      lossPct,
+      successPct,
+      sent,
+      recv: bgStats.recv,
+      fail: bgStats.fail,
     });
-    sessionRef.current.subscription = sub;
-  }, [targetConnection, customHost, pingInterval, pingMethod, loadInterstitial]);
+    if (bgStats.lastLatency > 0) {
+      setCurrentLatency(Math.round(bgStats.lastLatency));
+    }
+
+    dataUsageTracker.setPingingActive(true);
+    setIsPinging(true);
+
+    const session: PingSession = { active: true };
+    sessionRef.current = session;
+    sessionRef.current.subscription = addPingResultListener((event) =>
+      handlePingResult(event, session)
+    );
+  }, [handlePingResult]);
+
+  // On launch, resume a session the native service is still running.
+  useEffect(() => {
+    adoptRunningSession().catch(() => { });
+  }, [adoptRunningSession]);
 
   return (
     <ScrollView
@@ -549,12 +648,12 @@ export default function PingingScreen() {
                   {pingMethod === 'icmp' ? 'ICMP' : 'HTTP'}
                 </Text>
               </View>
-              {pingInterval === RELAX_OPTION && (
+              {/* {pingInterval === RELAX_OPTION && (
                 <View style={[styles.methodBadge, { backgroundColor: 'rgba(120,220,119,0.15)' }]}>
                   <MaterialIcons name="battery-saver" size={10} color={Colors.tertiary} />
                   <Text style={[styles.methodBadgeText, { color: Colors.tertiary }]}>RELAX</Text>
                 </View>
-              )}
+              )} */}
             </View>
           </TouchableOpacity>
 

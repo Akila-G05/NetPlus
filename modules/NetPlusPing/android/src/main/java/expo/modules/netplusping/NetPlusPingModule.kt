@@ -78,6 +78,8 @@ class NetPlusPingModule : Module() {
           putExtra(NetPlusPingForegroundService.EXTRA_TITLE, title)
           putExtra(NetPlusPingForegroundService.EXTRA_BODY, body)
           putExtra(NetPlusPingForegroundService.EXTRA_RELAX_MODE, relaxMode)
+          // A JS-initiated session always starts fresh (resets stats).
+          putExtra(NetPlusPingForegroundService.EXTRA_RESET, true)
         }
         ContextCompat.startForegroundService(context, intent)
         true
@@ -102,21 +104,18 @@ class NetPlusPingModule : Module() {
     }
 
     AsyncFunction("getBackgroundStats") {
-      val minMs = if (NetPlusPingForegroundService.minMs == Double.MAX_VALUE) 0 else NetPlusPingForegroundService.minMs.toInt()
-      val recv = NetPlusPingForegroundService.recvCount
-      val sum = NetPlusPingForegroundService.sumMs
-      val avgMs = if (recv > 0) (sum / recv).toInt() else 0
-
-      mapOf(
+      val context = appContext.reactContext ?: return@AsyncFunction mapOf(
         "isRunning" to NetPlusPingForegroundService.isRunning,
         "sent" to NetPlusPingForegroundService.sentCount,
         "recv" to NetPlusPingForegroundService.recvCount,
         "fail" to NetPlusPingForegroundService.failCount,
-        "min" to minMs,
+        "min" to 0,
         "max" to NetPlusPingForegroundService.maxMs.toInt(),
-        "avg" to avgMs,
-        "lastLatency" to NetPlusPingForegroundService.lastLatencyMs
+        "avg" to 0,
+        "lastLatency" to NetPlusPingForegroundService.lastLatencyMs,
+        "jitter" to 0
       )
+      NetPlusPingForegroundService.backgroundStats(context)
     }
 
     // ── Battery optimization exemption ──────────────────────────────

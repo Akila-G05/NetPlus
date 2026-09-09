@@ -51,6 +51,8 @@ class NetPlusPingForegroundService : Service() {
         const val EXTRA_TITLE = "EXTRA_TITLE"
         const val EXTRA_BODY = "EXTRA_BODY"
         const val EXTRA_RELAX_MODE = "EXTRA_RELAX_MODE"
+        // True for JS-initiated sessions (fresh stats); false for native restarts (restore).
+        const val EXTRA_RESET = "EXTRA_RESET"
 
         private const val PREFS_NAME = "netplus_ping_session"
         private const val KEY_ACTIVE = "active"
@@ -61,6 +63,18 @@ class NetPlusPingForegroundService : Service() {
         private const val KEY_TITLE = "title"
         private const val KEY_BODY = "body"
         private const val KEY_RELAX_MODE = "relax_mode"
+
+        // Persisted session stats (single source of truth across restarts)
+        private const val KEY_STAT_SENT = "stat_sent"
+        private const val KEY_STAT_RECV = "stat_recv"
+        private const val KEY_STAT_FAIL = "stat_fail"
+        private const val KEY_STAT_MIN = "stat_min"
+        private const val KEY_STAT_MAX = "stat_max"
+        private const val KEY_STAT_SUM = "stat_sum"
+        private const val KEY_STAT_LAST = "stat_last"
+        private const val KEY_STAT_JITTER_SUM = "stat_jitter_sum"
+        private const val KEY_STAT_JITTER_COUNT = "stat_jitter_count"
+        private const val NO_MIN = Int.MAX_VALUE
 
         internal val SCHEME_REGEX = Regex("""^https?://""", RegexOption.IGNORE_CASE)
 
@@ -93,6 +107,12 @@ class NetPlusPingForegroundService : Service() {
             private set
         var lastLatencyMs = -1.0
             private set
+        var prevLatencyMs = -1.0
+            private set
+        var jitterSumMs = 0.0
+            private set
+        var jitterCount = 0
+            private set
 
         fun resetStats() {
             sentCount = 0
@@ -102,6 +122,9 @@ class NetPlusPingForegroundService : Service() {
             maxMs = 0.0
             sumMs = 0.0
             lastLatencyMs = -1.0
+            prevLatencyMs = -1.0
+            jitterSumMs = 0.0
+            jitterCount = 0
         }
 
         data class Session(
@@ -142,6 +165,80 @@ class NetPlusPingForegroundService : Service() {
 
         fun clearSession(context: Context) {
             prefs(context).edit().clear().apply()
+        }
+
+        // ── Session stats persistence (single source of truth) ────────
+
+        /** Writes the current aggregate counters to prefs. Cheap (async apply). */
+        fun persistStats(context: Context) {
+            prefs(context).edit()
+                .putInt(KEY_STAT_SENT, sentCount)
+                .putInt(KEY_STAT_RECV, recvCount)
+                .putInt(KEY_STAT_FAIL, failCount)
+                .putInt(KEY_STAT_MIN, if (minMs == Double.MAX_VALUE) NO_MIN else minMs.toInt())
+                .putInt(KEY_STAT_MAX, maxMs.toInt())
+                .putInt(KEY_STAT_SUM, sumMs.toInt())
+                .putInt(KEY_STAT_LAST, if (lastLatencyMs > 0) lastLatencyMs.toInt() else -1)
+                .putInt(KEY_STAT_JITTER_SUM, jitterSumMs.toInt())
+                .putInt(KEY_STAT_JITTER_COUNT, jitterCount)
+                .apply()
+        }
+
+        /** Loads persisted counters into the in-memory companion stats (no reset). */
+        fun restoreStats(context: Context) {
+            val p = prefs(context)
+            sentCount = p.getInt(KEY_STAT_SENT, 0)
+            recvCount = p.getInt(KEY_STAT_RECV, 0)
+            failCount = p.getInt(KEY_STAT_FAIL, 0)
+            val min = p.getInt(KEY_STAT_MIN, NO_MIN)
+            minMs = if (min == NO_MIN) Double.MAX_VALUE else min.toDouble()
+            maxMs = p.getInt(KEY_STAT_MAX, 0).toDouble()
+            sumMs = p.getInt(KEY_STAT_SUM, 0).toDouble()
+            lastLatencyMs = if (p.getInt(KEY_STAT_LAST, -1) > 0) p.getInt(KEY_STAT_LAST, -1).toDouble() else -1.0
+            prevLatencyMs = if (lastLatencyMs > 0) lastLatencyMs else -1.0
+            jitterSumMs = p.getInt(KEY_STAT_JITTER_SUM, 0).toDouble()
+            jitterCount = p.getInt(KEY_STAT_JITTER_COUNT, 0)
+        }
+
+        /** Nulls persisted counters when a brand-new session starts. */
+        fun clearStatsPrefs(context: Context) {
+            prefs(context).edit()
+                .putInt(KEY_STAT_SENT, 0)
+                .putInt(KEY_STAT_RECV, 0)
+                .putInt(KEY_STAT_FAIL, 0)
+                .putInt(KEY_STAT_MIN, NO_MIN)
+                .putInt(KEY_STAT_MAX, 0)
+                .putInt(KEY_STAT_SUM, 0)
+                .putInt(KEY_STAT_LAST, -1)
+                .putInt(KEY_STAT_JITTER_SUM, 0)
+                .putInt(KEY_STAT_JITTER_COUNT, 0)
+                .apply()
+        }
+
+        /**
+         * Aggregate snapshot for the JS side. If the process restarted and the
+         * in-memory counters are still zeroed while a persisted run exists
+         * (service not yet re-activated), they are restored first.
+         */
+        fun backgroundStats(context: Context): Map<String, Any?> {
+            if (sentCount == 0 && prefs(context).getInt(KEY_STAT_SENT, 0) > 0) {
+                restoreStats(context)
+            }
+            val min = if (minMs == Double.MAX_VALUE) 0 else minMs.toInt()
+            val recv = recvCount
+            val avg = if (recv > 0) (sumMs / recv).toInt() else 0
+            val jitter = if (jitterCount > 0) (jitterSumMs / jitterCount).toInt() else 0
+            return mapOf(
+                "isRunning" to isRunning,
+                "sent" to sentCount,
+                "recv" to recvCount,
+                "fail" to failCount,
+                "min" to min,
+                "max" to maxMs.toInt(),
+                "avg" to avg,
+                "lastLatency" to lastLatencyMs,
+                "jitter" to jitter
+            )
         }
 
         fun loadSession(context: Context): Session {
@@ -253,6 +350,7 @@ class NetPlusPingForegroundService : Service() {
 
         userStopped = false
         relaxMode = intent?.getBooleanExtra(EXTRA_RELAX_MODE, false) ?: false
+        val resetSession = intent?.getBooleanExtra(EXTRA_RESET, false) ?: false
         if (relaxMode) {
             releaseWakeLock()
         } else {
@@ -263,7 +361,7 @@ class NetPlusPingForegroundService : Service() {
         // Persist the session so a boot watchdog / process restart can restore it.
         saveSession(this, host, intervalMs, timeoutMs, method, title, body, relaxMode)
 
-        startMonitoring(host, intervalMs, timeoutMs, method, title, relaxMode)
+        startMonitoring(host, intervalMs, timeoutMs, method, title, relaxMode, resetSession)
 
         return START_STICKY
     }
@@ -295,11 +393,20 @@ class NetPlusPingForegroundService : Service() {
         timeoutMs: Int,
         method: String,
         title: String,
-        relax: Boolean
+        relax: Boolean,
+        resetSession: Boolean
     ) {
         pingJob?.cancel()
         cancelRelaxAlarm()
-        resetStats()
+        if (resetSession) {
+            // Brand-new user session: zero in-memory + persisted stats.
+            resetStats()
+            clearStatsPrefs(this)
+        } else {
+            // Native restart (boot / watchdog / task-removed): restore the
+            // persisted counters so the session's history survives.
+            restoreStats(this)
+        }
         isRunning = true
         relaxMode = relax
         relaxTickRunning = false
@@ -346,6 +453,11 @@ class NetPlusPingForegroundService : Service() {
         if (latency != null && latency > 0) {
             recvCount++
             lastLatencyMs = latency
+            if (prevLatencyMs > 0) {
+                jitterSumMs += kotlin.math.abs(latency - prevLatencyMs)
+                jitterCount++
+            }
+            prevLatencyMs = latency
             if (latency < minMs) minMs = latency
             if (latency > maxMs) maxMs = latency
             sumMs += latency
@@ -360,6 +472,7 @@ class NetPlusPingForegroundService : Service() {
             updateNotificationThrottled(title, "Pinging $host | Timeout / Failed")
             listener?.invoke(host, -1, sentCount, recvCount, failCount)
         }
+        persistStats(this)
     }
 
     private fun runRelaxTick() {

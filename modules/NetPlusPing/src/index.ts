@@ -20,6 +20,7 @@ export interface BackgroundPingStats {
   max: number;
   avg: number;
   lastLatency: number;
+  jitter: number;
 }
 
 export interface SpeedTestProgressEvent {

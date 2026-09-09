@@ -372,7 +372,7 @@ class NetPlusSpeedTestForegroundService : Service() {
             conn = URL(urlStr).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.connectTimeout = 4000
-            conn.readTimeout = DOWNLOAD_READ_TIMEOUT_MS
+            conn.readTimeout = DOWNLOAD_READ_TIMEOUT_MS.toInt()
             conn.instanceFollowRedirects = true
             conn.setRequestProperty("User-Agent", "NetPlus/1.0")
             conn.connect()
@@ -385,11 +385,12 @@ class NetPlusSpeedTestForegroundService : Service() {
                 return@withContext 0L
             }
             val buffer = ByteArray(64 * 1024)
-            var read: Int
+            var read = input.read(buffer)
             // Stop early once we have enough bytes for an accurate throughput
             // sample — avoids read-timeouts on slow links waiting for all 25 MB.
-            while (total < DOWNLOAD_CHUNK_CAP_BYTES && input.read(buffer).also { read = it } != -1) {
+            while (read != -1 && total < DOWNLOAD_CHUNK_CAP_BYTES) {
                 total += read
+                read = input.read(buffer)
             }
             try {
                 input.close()

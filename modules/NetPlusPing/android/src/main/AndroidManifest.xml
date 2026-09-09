@@ -17,16 +17,6 @@
                 <action android:name="expo.modules.netplusping.RESTART_PING" />
             </intent-filter>
         </receiver>
-
-        <service
-            android:name="expo.modules.netplusping.NetPlusSpeedTestForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="network speed test" />
-        </service>
     </application>
 
 </manifest>

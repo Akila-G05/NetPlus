@@ -19,6 +19,7 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 
 import { notificationService } from '@/services/NotificationService';
+import BatteryOnboarding from '@/components/BatteryOnboarding';
 
 // Keep splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
@@ -52,7 +53,9 @@ export default function RootLayout() {
   return (
     <>
       <StatusBar style="light" />
-      <Slot />
+      <BatteryOnboarding>
+        <Slot />
+      </BatteryOnboarding>
     </>
   );
 }

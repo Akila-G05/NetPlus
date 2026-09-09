@@ -10,14 +10,13 @@ import { gs } from '@/styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  addPingResultListener,
   getBackgroundStats,
   isIgnoringBatteryOptimizations,
-  openBatteryOptimizationSettings,
-  ping as nativeIcmpPing,
-  requestIgnoreBatteryOptimizations,
   startContinuousPing,
   stopContinuousPing,
 } from 'netplus-ping';
+import { useBatteryOnboarding } from '@/components/BatteryOnboarding';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -78,8 +77,7 @@ function sanitizeHost(input: string): string {
 
 interface PingSession {
   active: boolean;
-  timer?: ReturnType<typeof setTimeout>;
-  tick?: () => void;
+  subscription?: { remove: () => void };
 }
 
 interface PingStats {
@@ -98,7 +96,6 @@ const MAX_PING_MS = 5000;
 
 const PING_CONFIG_KEY = '@netplus/ping-config';
 const PING_METHOD_KEY = '@netplus/ping-method';
-const BATTERY_TIP_KEY = '@netplus/battery-tip-shown';
 const DEFAULT_TARGET = 'Google';
 const DEFAULT_INTERVAL = '5000 ms (5s)';
 const DEFAULT_PING_METHOD: PingMethod = 'icmp';
@@ -159,89 +156,14 @@ function parseIntervalMs(option: string): number {
 // Ping method types
 type PingMethod = 'icmp' | 'http';
 
-// ICMP ping via native NetPlusPing module (spawns the OS `ping` binary).
-async function nativePing(host: string, timeoutMs: number): Promise<number | null> {
-  const cleanHost = sanitizeHost(host);
-  if (!cleanHost) return null;
-
-  const probeTimeout = Math.max(timeoutMs, 3000);
-  try {
-    const res = await nativeIcmpPing(cleanHost, probeTimeout);
-    if (typeof res === 'number' && !isNaN(res) && res > 0) {
-      return res;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Latency is measured with an HTTP round-trip (GET/HEAD request) against the selected host.
-async function httpPing(host: string, timeoutMs: number): Promise<number | null> {
-  let cleanHost = sanitizeHost(host);
-  if (!cleanHost) return null;
-
-  const probeTimeout = Math.max(timeoutMs, 3000);
-
-  // Directly map common target IP/domain presets to fast, non-redirecting HTTP endpoints
-  let targetUrl = `https://${cleanHost}/`;
-  if (cleanHost === '8.8.8.8' || cleanHost === '8.8.4.4' || cleanHost.includes('google')) {
-    targetUrl = 'https://www.google.com/generate_204';
-  } else if (cleanHost === '1.1.1.1' || cleanHost === '1.0.0.1' || cleanHost.includes('cloudflare')) {
-    targetUrl = 'https://1.1.1.1/cdn-cgi/trace';
-  }
-
-  const startedAt = performance.now();
-
-  // Attempt 1: Configured HTTPS endpoint
-  try {
-    const controller1 = new AbortController();
-    const timer1 = setTimeout(() => controller1.abort(), probeTimeout);
-    await fetch(targetUrl, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller1.signal,
-    });
-    clearTimeout(timer1);
-    return Math.max(1, performance.now() - startedAt);
-  } catch {
-    // Attempt 2: Fallback to HTTP GET on host
-    try {
-      const controller2 = new AbortController();
-      const timer2 = setTimeout(() => controller2.abort(), probeTimeout);
-      await fetch(`http://${cleanHost}/`, {
-        method: 'GET',
-        cache: 'no-store',
-        signal: controller2.signal,
-      });
-      clearTimeout(timer2);
-      return Math.max(1, performance.now() - startedAt);
-    } catch {
-      return null;
-    }
-  }
-}
-
-// Dispatch to ICMP (native `ping` binary with HTTP fallback) or HTTP method.
-async function pingHost(host: string, timeoutMs: number, method: PingMethod): Promise<number | null> {
-  if (!host) return null;
-  if (method === 'icmp') {
-    const icmpMs = await nativePing(host, timeoutMs);
-    if (icmpMs !== null) return icmpMs;
-    // Fallback to httpPing if native module unavailable (e.g. Expo Go)
-    return httpPing(host, timeoutMs);
-  }
-  return httpPing(host, timeoutMs);
-}
-
 export default function PingingScreen() {
   const pulseScale = usePulse();
 
+  const { batteryModalDismissed, showBatteryModal } = useBatteryOnboarding();
+
   // Ping Configuration State
   const [configModalVisible, setConfigModalVisible] = useState(false);
-  const [batteryModalVisible, setBatteryModalVisible] = useState(false);
   const [batteryExempt, setBatteryExempt] = useState(false);
-  const [batteryBusy, setBatteryBusy] = useState(false);
   const [targetConnection, setTargetConnection] = useState(DEFAULT_TARGET);
   const [customHost, setCustomHost] = useState('');
   const [pingInterval, setPingInterval] = useState(DEFAULT_INTERVAL);
@@ -309,29 +231,17 @@ export default function PingingScreen() {
       .finally(() => setConfigLoaded(true));
   }, []);
 
-  // Refresh battery-optimization exemption status when the modal opens
+  // Refresh battery-optimization exemption status (used by banner check)
   const refreshBatteryExempt = useCallback(async () => {
     const exempt = await isIgnoringBatteryOptimizations();
     setBatteryExempt(exempt);
     return exempt;
   }, []);
 
-  // First-open onboarding: request notification permission and show the
-  // background-run confirmation dialog so pinging survives screen-off.
+  // Check battery exemption on mount (for banner visibility)
   useEffect(() => {
-    if (!configLoaded) return;
-    (async () => {
-      try {
-        const shown = await AsyncStorage.getItem(BATTERY_TIP_KEY);
-        const exempt = await refreshBatteryExempt();
-        await notificationService.requestPermissions();
-        if (!exempt && shown !== 'true') {
-          setBatteryModalVisible(true);
-          await AsyncStorage.setItem(BATTERY_TIP_KEY, 'true');
-        }
-      } catch { }
-    })();
-  }, [configLoaded, refreshBatteryExempt]);
+    refreshBatteryExempt();
+  }, [refreshBatteryExempt]);
 
   // Save settings whenever they change (after initial load)
   useEffect(() => {
@@ -387,7 +297,8 @@ export default function PingingScreen() {
 
   const stopPing = useCallback(() => {
     sessionRef.current.active = false;
-    if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
+    sessionRef.current.subscription?.remove();
+    sessionRef.current.subscription = undefined;
 
     // Clean up native continuous ping service
     stopContinuousPing().catch(() => { });
@@ -457,15 +368,11 @@ export default function PingingScreen() {
     }
   }, []);
 
-  // Sync background stats and resume pinging immediately when returning to foreground
+  // Sync background stats when returning to foreground
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active' && sessionRef.current.active) {
         syncBackgroundStats();
-        if (sessionRef.current.tick) {
-          if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
-          sessionRef.current.tick();
-        }
       }
     });
     return () => subscription.remove();
@@ -480,13 +387,10 @@ export default function PingingScreen() {
     // Requests are capped at MAX_PING_MS — anything slower counts as a loss
     const requestTimeoutMs = Math.min(Math.max(intervalMs * 2, 3000), MAX_PING_MS);
 
-    // Stop any existing JS-side ping loop/timer, but do NOT stop the
-    // native foreground service here — the new startContinuousPing()
-    // intent will override the running service's parameters directly,
-    // avoiding a STOP→START race that kills the service before it
-    // can promote to foreground.
+    // Stop any existing session, but do NOT stop the native foreground
+    // service here — the new startContinuousPing() intent will override
+    // the running service's parameters directly.
     sessionRef.current.active = false;
-    if (sessionRef.current.timer) clearTimeout(sessionRef.current.timer);
 
     dataUsageTracker.setPingingActive(true);
     latenciesRef.current = [];
@@ -500,7 +404,9 @@ export default function PingingScreen() {
     const session: PingSession = { active: true };
     sessionRef.current = session;
 
-    // Start native continuous ping service with WakeLock and persistent notification
+    // Start native continuous ping service with WakeLock and persistent notification.
+    // The native service sends ICMP/HTTP pings and fires onPingResult events
+    // — the JS side only subscribes to those events, no duplicate pings.
     startContinuousPing(
       host,
       intervalMs,
@@ -510,69 +416,49 @@ export default function PingingScreen() {
       `Pinging ${host} every ${pingInterval}`
     ).catch(() => { });
 
-    const tick = async () => {
+    // Subscribe to native ping results — single source of truth for all stats.
+    const sub = addPingResultListener((event) => {
       if (!session.active) return;
-      const startTime = Date.now();
 
-      const latencyRaw = await pingHost(host, requestTimeoutMs, pingMethod);
-      const latency =
-        latencyRaw !== null ? Math.min(Math.round(latencyRaw), MAX_PING_MS) : null;
-      // console.log(`[Ping] Target: ${host} | Method: ${pingMethod.toUpperCase()} | Result: ${latency !== null ? `${latency} ms` : 'FAILED'}`);
-      if (!session.active) return; // stopped while in flight
+      dataUsageTracker.recordPingResult(event.latency > 0);
 
-      dataUsageTracker.recordPingResult(latency !== null);
-
-      if (latency === null) {
-        setCurrentLatency(null);
-        setStats((prev) => {
-          const sent = prev.sent + 1;
-          const fail = prev.fail + 1;
-          return {
-            ...prev,
-            sent,
-            fail,
-            lossPct: Math.round((fail / sent) * 100),
-            successPct: Math.round(((sent - fail) / sent) * 100),
-          };
-        });
-      } else {
+      if (event.latency > 0) {
+        const latency = Math.min(event.latency, MAX_PING_MS);
         setCurrentLatency(latency);
         const samples = [...latenciesRef.current, latency];
         latenciesRef.current = samples;
-        setStats((prev) => {
-          const sent = prev.sent + 1;
-          const recv = prev.recv + 1;
-          let jitterSum = 0;
-          for (let i = 1; i < samples.length; i++) {
-            jitterSum += Math.abs(samples[i] - samples[i - 1]);
-          }
-          return {
-            ...prev,
-            sent,
-            recv,
-            min: Math.round(Math.min(...samples)),
-            max: Math.round(Math.max(...samples)),
-            avg: Math.round(samples.reduce((a, b) => a + b, 0) / samples.length),
-            jitter:
-              samples.length > 1
-                ? Math.round(jitterSum / (samples.length - 1))
-                : prev.jitter,
-            lossPct: Math.round((prev.fail / sent) * 100),
-            successPct: Math.round((recv / sent) * 100),
-          };
+        let jitterSum = 0;
+        for (let i = 1; i < samples.length; i++) {
+          jitterSum += Math.abs(samples[i] - samples[i - 1]);
+        }
+        setStats({
+          min: Math.round(Math.min(...samples)),
+          max: Math.round(Math.max(...samples)),
+          avg: Math.round(samples.reduce((a, b) => a + b, 0) / samples.length),
+          jitter:
+            samples.length > 1
+              ? Math.round(jitterSum / (samples.length - 1))
+              : 0,
+          lossPct: event.sent > 0 ? Math.round((event.fail / event.sent) * 100) : 0,
+          successPct: event.sent > 0 ? Math.round((event.recv / event.sent) * 100) : 0,
+          sent: event.sent,
+          recv: event.recv,
+          fail: event.fail,
         });
+      } else {
+        setCurrentLatency(null);
+        setStats((prev) => ({
+          ...prev,
+          lossPct: event.sent > 0 ? Math.round((event.fail / event.sent) * 100) : 0,
+          successPct: event.sent > 0 ? Math.round((event.recv / event.sent) * 100) : 0,
+          sent: event.sent,
+          recv: event.recv,
+          fail: event.fail,
+        }));
       }
-
-      if (session.active) {
-        const elapsed = Date.now() - startTime;
-        const nextDelay = Math.max(100, intervalMs - elapsed);
-        session.timer = setTimeout(tick, nextDelay);
-      }
-    };
-
-    session.tick = tick;
-    tick();
-  }, [targetConnection, customHost, pingInterval, pingMethod, stopPing, loadInterstitial]);
+    });
+    sessionRef.current.subscription = sub;
+  }, [targetConnection, customHost, pingInterval, pingMethod, loadInterstitial]);
 
   return (
     <ScrollView
@@ -694,13 +580,13 @@ export default function PingingScreen() {
       </TouchableOpacity>
 
       {/* ── Battery optimization shortcut ─────────────────── */}
-      {!batteryExempt && (
+      {!batteryExempt && batteryModalDismissed && (
         <TouchableOpacity
           style={styles.settingsRow}
           activeOpacity={0.7}
           onPress={() => {
             refreshBatteryExempt();
-            setBatteryModalVisible(true);
+            showBatteryModal();
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -832,88 +718,6 @@ export default function PingingScreen() {
               >
                 <Text style={gs.btnPrimaryText}>Save & Apply</Text>
               </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ── Battery Optimization Modal ──────────────────────────────── */}
-      <Modal
-        visible={batteryModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setBatteryModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.configModalOverlay}
-          activeOpacity={1}
-          onPress={() => setBatteryModalVisible(false)}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.cardModalContainer}>
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <MaterialIcons name="battery-alert" size={20} color={Colors.warning} />
-                  <Text style={styles.cardTitle}>ALLOW BACKGROUND RUN</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setBatteryModalVisible(false)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <MaterialIcons name="close" size={20} color={Colors.onSurfaceVariant} />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[gs.bodyMd, { color: Colors.onSurface, marginBottom: 10 }]}>
-                Some phones (especially Honor / Huawei / Xiaomi) pause background apps when the
-                screen is off, which can pause pinging. Allowing NetPlus to ignore battery
-                optimization keeps pinging running reliably in the background.
-              </Text>
-
-              {batteryExempt ? (
-                <View style={[styles.batteryOkBanner, { marginBottom: 12 }]}>
-                  <MaterialIcons name="check-circle" size={18} color={Colors.tertiary} />
-                  <Text style={[gs.bodyMd, { color: Colors.tertiary, flex: 1 }]}>
-                    Battery optimization is already disabled for NetPlus.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <TouchableOpacity
-                    style={[gs.btnPrimary, { marginBottom: 10 }]}
-                    activeOpacity={0.8}
-                    disabled={batteryBusy}
-                    onPress={async () => {
-                      setBatteryBusy(true);
-                      await requestIgnoreBatteryOptimizations();
-                      await refreshBatteryExempt();
-                      setBatteryBusy(false);
-                    }}
-                  >
-                    <Text style={gs.btnPrimaryText}>
-                      {batteryBusy ? 'Opening…' : 'Allow Background Always'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[gs.btnSecondary, { marginBottom: 6 }]}
-                    activeOpacity={0.8}
-                    onPress={() => openBatteryOptimizationSettings()}
-                  >
-                    <Text style={gs.btnSecondaryText}>Open Battery Settings</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-
-              <Text style={[Typography.labelCaps, { color: Colors.onSurfaceVariant, marginTop: 10 }]}>
-                HONOR / HUAWEI STEP-BY-STEP
-              </Text>
-              <Text style={[gs.bodyMd, { color: Colors.onSurfaceVariant, marginTop: 6 }]}>
-                1. Open Settings → Battery → App launch
-                {'\n'}2. Find NetPlus → tap it → select {`'Manage manually'`}
-                {'\n'}3. Enable ALL toggles (Auto-launch, Secondary launch, Run in background)
-                {'\n'}4. Also {`'Lock'`} NetPlus in Recent Apps.
-              </Text>
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -1111,16 +915,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.outlineVariant,
     paddingVertical: 8,
     paddingHorizontal: 16,
-  },
-  batteryOkBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(120, 220, 119, 0.1)',
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(120, 220, 119, 0.3)',
-    padding: 10,
   },
 
   // ── Modal & Select Styles ──────────────────────────────

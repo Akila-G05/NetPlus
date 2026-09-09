@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import { LOG_ENABLED_DEFAULT, LOG_ENABLED_KEY } from '@/constants/pingConfig';
 import { gs } from '@/styles/globalStyles';
 import { SettingsToggle } from '@/components/SettingsRow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -38,6 +39,7 @@ export default function SettingsScreen() {
   const [pushNotifications, setPushNotifications] = useState(true);
   const [autoSaveLogs, setAutoSaveLogs] = useState(true);
   const [allowBackgroundRun, setAllowBackgroundRun] = useState(false);
+  const [pingLogEnabled, setPingLogEnabled] = useState(LOG_ENABLED_DEFAULT);
 
   // Modals State
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
@@ -57,6 +59,9 @@ export default function SettingsScreen() {
     isIgnoringBatteryOptimizations().then((exempt) => {
       setAllowBackgroundRun(exempt);
     });
+    AsyncStorage.getItem(LOG_ENABLED_KEY).then((value) => {
+      if (value !== null) setPingLogEnabled(value === 'true');
+    }).catch(() => {});
 
     // Re-sync when the user returns to the app after changing the
     // exemption/background-run setting in Android's battery settings.
@@ -96,11 +101,21 @@ export default function SettingsScreen() {
     setAllowBackgroundRun(exempt);
   };
 
+  const handleTogglePingLog = async (val: boolean) => {
+    setPingLogEnabled(val);
+    try {
+      await AsyncStorage.setItem(LOG_ENABLED_KEY, JSON.stringify(val));
+    } catch {
+      // Ignore
+    }
+  };
+
   // App Reset Handler
   const handleResetApp = async () => {
     setPushNotifications(true);
     notificationService.setNotificationsEnabled(true);
     setAutoSaveLogs(true);
+    setPingLogEnabled(LOG_ENABLED_DEFAULT);
     setResetModalVisible(false);
 
     try {
@@ -173,6 +188,13 @@ export default function SettingsScreen() {
           label="Allow Background Run"
           value={allowBackgroundRun}
           onValueChange={handleToggleBackgroundRun}
+          bordered
+        />
+
+        <SettingsToggle
+          label="Ping Log Console"
+          value={pingLogEnabled}
+          onValueChange={handleTogglePingLog}
           bordered
         />
       </View>

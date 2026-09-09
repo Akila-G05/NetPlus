@@ -1,7 +1,9 @@
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
+import PingLog, { type PingLogEntry } from '@/components/PingLog';
 import SettingsRow from '@/components/SettingsRow';
 import SimpleSelect from '@/components/SimpleSelect';
 import StatBox from '@/components/StatBox';
+import { LOG_ENABLED_DEFAULT, LOG_ENABLED_KEY, MAX_LOG_ENTRIES } from '@/constants/pingConfig';
 import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
 import { notificationService } from '@/services/NotificationService';
@@ -17,6 +19,7 @@ import {
   stopContinuousPing,
 } from 'netplus-ping';
 import { useBatteryOnboarding } from '@/components/BatteryOnboarding';
+import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -158,6 +161,13 @@ function parseIntervalMs(option: string): number {
   return match ? Number(match[0]) : 1000;
 }
 
+function formatTimeStamp(date: Date): string {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
 // Ping method types
 type PingMethod = 'icmp' | 'http';
 
@@ -179,8 +189,13 @@ export default function PingingScreen() {
   const [currentLatency, setCurrentLatency] = useState<number | null>(null);
   const [stats, setStats] = useState<PingStats>(EMPTY_STATS);
 
+  // Ping log console (feature toggled in Settings)
+  const [logEnabled, setLogEnabled] = useState(LOG_ENABLED_DEFAULT);
+  const [logEntries, setLogEntries] = useState<PingLogEntry[]>([]);
+
   const sessionRef = useRef<PingSession>({ active: false });
   const latenciesRef = useRef<number[]>([]);
+  const logEnabledRef = useRef(LOG_ENABLED_DEFAULT);
   const adLoaded = useRef(false);
   const adIsLoading = useRef(false);
   const lastAdShowTime = useRef(0);
@@ -235,6 +250,22 @@ export default function PingingScreen() {
       .catch(() => { })
       .finally(() => setConfigLoaded(true));
   }, []);
+
+  // Keep a ref in sync so a running session's listener reads the live toggle
+  useEffect(() => {
+    logEnabledRef.current = logEnabled;
+  }, [logEnabled]);
+
+  // Re-read the log toggle when the tab regains focus (Settings toggles it)
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem(LOG_ENABLED_KEY)
+        .then((value) => {
+          if (value !== null) setLogEnabled(value === 'true');
+        })
+        .catch(() => { });
+    }, [])
+  );
 
   // Refresh battery-optimization exemption status (used by banner check)
   const refreshBatteryExempt = useCallback(async () => {
@@ -402,6 +433,7 @@ export default function PingingScreen() {
     latenciesRef.current = [];
     setCurrentLatency(null);
     setStats(EMPTY_STATS);
+    setLogEntries([]);
     setIsPinging(true);
     if (AD_LOAD_ON_START) {
       loadInterstitial();
@@ -428,6 +460,19 @@ export default function PingingScreen() {
       if (!session.active) return;
 
       dataUsageTracker.recordPingResult(event.latency > 0);
+
+      if (logEnabledRef.current) {
+        setLogEntries((prev) =>
+          [
+            {
+              time: formatTimeStamp(new Date()),
+              host: event.host,
+              latency: event.latency > 0 ? event.latency : null,
+            },
+            ...prev,
+          ].slice(0, MAX_LOG_ENTRIES)
+        );
+      }
 
       if (event.latency > 0) {
         const latency = Math.min(event.latency, MAX_PING_MS);
@@ -653,6 +698,9 @@ export default function PingingScreen() {
           <Text style={[gs.codeSm, { color: Colors.error }]}>{stats.fail}</Text>
         </View>
       </View>
+
+      {/* ── Ping Log Console ────────────────────────────── */}
+      {logEnabled && <PingLog entries={logEntries} />}
 
       {/* ── Ping Target & Timing Configuration Modal ──────────────── */}
       <Modal

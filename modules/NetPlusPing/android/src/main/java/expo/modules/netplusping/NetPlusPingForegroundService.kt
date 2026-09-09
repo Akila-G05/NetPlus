@@ -39,6 +39,10 @@ class NetPlusPingForegroundService : Service() {
         const val ACTION_STOP = "ACTION_STOP"
         const val ACTION_RELAX_TICK = "ACTION_RELAX_TICK"
         const val ACTION_WATCHDOG_RESTART = "expo.modules.netplusping.RESTART_PING"
+        const val ACTION_WATCHDOG_TICK = "expo.modules.netplusping.WATCHDOG_TICK"
+
+        const val WATCHDOG_TICK_MS = 30_000L
+        private const val WATCHDOG_TICK_REQUEST_CODE = 3001
 
         const val EXTRA_HOST = "EXTRA_HOST"
         const val EXTRA_INTERVAL = "EXTRA_INTERVAL"
@@ -168,6 +172,46 @@ class NetPlusPingForegroundService : Service() {
                 putExtra(EXTRA_BODY, s.body)
                 putExtra(EXTRA_RELAX_MODE, s.relax)
             }
+
+        // ── Periodic crash-recovery watchdog ─────────────────────────────
+        fun watchdogPendingIntent(context: Context): PendingIntent {
+            val intent = Intent(context, NetPlusPingBootReceiver::class.java)
+                .setAction(ACTION_WATCHDOG_TICK)
+            return PendingIntent.getBroadcast(
+                context,
+                WATCHDOG_TICK_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        /** Self-rearming 30s watchdog — restarts the service if it dies. */
+        fun scheduleWatchdogAlarm(context: Context) {
+            try {
+                if (!loadSession(context).active) return
+                val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_TICK_MS
+                val pi = watchdogPendingIntent(context)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    // Inexact — no SCHEDULE_EXACT_ALARM permission needed; in doze
+                    // Android batches these (acceptable: it's a crash-recovery net).
+                    alarm.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                } else {
+                    alarm.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        fun cancelWatchdogAlarm(context: Context) {
+            try {
+                val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                alarm.cancel(watchdogPendingIntent(context))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -183,6 +227,7 @@ class NetPlusPingForegroundService : Service() {
 
         if (action == ACTION_STOP) {
             userStopped = true
+            cancelWatchdogAlarm(this)
             clearSession(this)
             stopMonitoring()
             stopSelf()
@@ -258,6 +303,8 @@ class NetPlusPingForegroundService : Service() {
         isRunning = true
         relaxMode = relax
         relaxTickRunning = false
+        // Arm the periodic crash-recovery watchdog for the session lifetime.
+        scheduleWatchdogAlarm(this)
         lastNotificationTs = 0L
         lastNotifiedTitle = ""
         lastNotifiedBody = ""
@@ -536,7 +583,10 @@ class NetPlusPingForegroundService : Service() {
         serviceScope.cancel()
         super.onDestroy()
         if (shouldRestart) {
+            // Keep the periodic watchdog armed and fire a fast 1s restart too.
             scheduleWatchdogRestart()
+        } else {
+            cancelWatchdogAlarm(this)
         }
     }
 }

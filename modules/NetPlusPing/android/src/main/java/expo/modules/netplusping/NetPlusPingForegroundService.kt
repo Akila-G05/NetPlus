@@ -20,7 +20,6 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.TimeUnit
 
 class NetPlusPingForegroundService : Service() {
 
@@ -28,6 +27,9 @@ class NetPlusPingForegroundService : Service() {
     private var pingJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var userStopped = false
+    private var relaxMode = false
+    private var relaxTickRunning = false
+    private val relaxAlarmRequestCode = 2001
 
     companion object {
         const val CHANNEL_ID = "netplus_ping_channel"
@@ -35,6 +37,7 @@ class NetPlusPingForegroundService : Service() {
 
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_RELAX_TICK = "ACTION_RELAX_TICK"
         const val ACTION_WATCHDOG_RESTART = "expo.modules.netplusping.RESTART_PING"
 
         const val EXTRA_HOST = "EXTRA_HOST"
@@ -43,6 +46,7 @@ class NetPlusPingForegroundService : Service() {
         const val EXTRA_METHOD = "EXTRA_METHOD"
         const val EXTRA_TITLE = "EXTRA_TITLE"
         const val EXTRA_BODY = "EXTRA_BODY"
+        const val EXTRA_RELAX_MODE = "EXTRA_RELAX_MODE"
 
         private const val PREFS_NAME = "netplus_ping_session"
         private const val KEY_ACTIVE = "active"
@@ -52,15 +56,10 @@ class NetPlusPingForegroundService : Service() {
         private const val KEY_METHOD = "method"
         private const val KEY_TITLE = "title"
         private const val KEY_BODY = "body"
+        private const val KEY_RELAX_MODE = "relax_mode"
 
         internal val SCHEME_REGEX = Regex("""^https?://""", RegexOption.IGNORE_CASE)
-        internal val TIME_REGEX = Regex("""time[=<]\s*([\d.]+)\s*ms""", RegexOption.IGNORE_CASE)
-        internal val RTT_REGEX = Regex("""(?:rtt|round-trip)\s+min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/""", RegexOption.IGNORE_CASE)
 
-        // Minimum valid latency before a sample is trusted. Values below this
-        // are CDN/cache/loopback artifacts (e.g. the old constant "1ms") and
-        // are rejected so pinging reports real network RTTs.
-        private const val MIN_ICMP_LATENCY_MS = 2.0
         internal const val MIN_HTTP_LATENCY_MS = 5.0
 
         fun cleanHost(rawHost: String): String {
@@ -108,7 +107,8 @@ class NetPlusPingForegroundService : Service() {
             val timeoutMs: Int,
             val method: String,
             val title: String,
-            val body: String
+            val body: String,
+            val relax: Boolean
         )
 
         private fun prefs(context: Context): SharedPreferences =
@@ -121,7 +121,8 @@ class NetPlusPingForegroundService : Service() {
             timeoutMs: Int,
             method: String,
             title: String,
-            body: String
+            body: String,
+            relax: Boolean
         ) {
             prefs(context).edit()
                 .putBoolean(KEY_ACTIVE, true)
@@ -131,6 +132,7 @@ class NetPlusPingForegroundService : Service() {
                 .putString(KEY_METHOD, method)
                 .putString(KEY_TITLE, title)
                 .putString(KEY_BODY, body)
+                .putBoolean(KEY_RELAX_MODE, relax)
                 .apply()
         }
 
@@ -141,7 +143,7 @@ class NetPlusPingForegroundService : Service() {
         fun loadSession(context: Context): Session {
             val p = prefs(context)
             if (!p.getBoolean(KEY_ACTIVE, false)) {
-                return Session(false, "8.8.8.8", 1000L, 3000, "http", "NetPlus Continuous Monitor", "Pinging...")
+                return Session(false, "8.8.8.8", 1000L, 3000, "http", "NetPlus Continuous Monitor", "Pinging...", false)
             }
             return Session(
                 active = true,
@@ -150,7 +152,8 @@ class NetPlusPingForegroundService : Service() {
                 timeoutMs = p.getInt(KEY_TIMEOUT, 3000),
                 method = p.getString(KEY_METHOD, "http") ?: "http",
                 title = p.getString(KEY_TITLE, "NetPlus Continuous Monitor") ?: "NetPlus Continuous Monitor",
-                body = p.getString(KEY_BODY, "Pinging...") ?: "Pinging..."
+                body = p.getString(KEY_BODY, "Pinging...") ?: "Pinging...",
+                relax = p.getBoolean(KEY_RELAX_MODE, false)
             )
         }
 
@@ -163,6 +166,7 @@ class NetPlusPingForegroundService : Service() {
                 putExtra(EXTRA_METHOD, s.method)
                 putExtra(EXTRA_TITLE, s.title)
                 putExtra(EXTRA_BODY, s.body)
+                putExtra(EXTRA_RELAX_MODE, s.relax)
             }
     }
 
@@ -185,6 +189,16 @@ class NetPlusPingForegroundService : Service() {
             return START_NOT_STICKY
         }
 
+        if (action == ACTION_RELAX_TICK) {
+            // Alarm-driven wake in relax mode: run one probe, then re-arm.
+            // Guards: a stale tick must never start pinging in precise mode
+            // (e.g. a sticky redelivery after a fresh process death).
+            if (isRunning && relaxMode) {
+                runRelaxTick()
+            }
+            return START_STICKY
+        }
+
         val host = intent?.getStringExtra(EXTRA_HOST) ?: "8.8.8.8"
         val intervalMs = intent?.getLongExtra(EXTRA_INTERVAL, 1000L) ?: 1000L
         val timeoutMs = intent?.getIntExtra(EXTRA_TIMEOUT, 3000) ?: 3000
@@ -193,13 +207,18 @@ class NetPlusPingForegroundService : Service() {
         val body = intent?.getStringExtra(EXTRA_BODY) ?: "Pinging $host"
 
         userStopped = false
-        acquireWakeLock()
+        relaxMode = intent?.getBooleanExtra(EXTRA_RELAX_MODE, false) ?: false
+        if (relaxMode) {
+            releaseWakeLock()
+        } else {
+            acquireWakeLock()
+        }
         promoteToForeground(title, body)
 
         // Persist the session so a boot watchdog / process restart can restore it.
-        saveSession(this, host, intervalMs, timeoutMs, method, title, body)
+        saveSession(this, host, intervalMs, timeoutMs, method, title, body, relaxMode)
 
-        startMonitoring(host, intervalMs, timeoutMs, method, title)
+        startMonitoring(host, intervalMs, timeoutMs, method, title, relaxMode)
 
         return START_STICKY
     }
@@ -230,49 +249,125 @@ class NetPlusPingForegroundService : Service() {
         intervalMs: Long,
         timeoutMs: Int,
         method: String,
-        title: String
+        title: String,
+        relax: Boolean
     ) {
         pingJob?.cancel()
+        cancelRelaxAlarm()
         resetStats()
         isRunning = true
+        relaxMode = relax
+        relaxTickRunning = false
         lastNotificationTs = 0L
         lastNotifiedTitle = ""
         lastNotifiedBody = ""
 
-        pingJob = serviceScope.launch {
-            while (isActive && isRunning) {
-                ensureWakeLockHeld()
-                val startElapsed = SystemClock.elapsedRealtime()
-
-                val latency = if (method.equals("icmp", ignoreCase = true)) {
-                    runNativePingSafely(host, timeoutMs) ?: runHttpPing(host, timeoutMs)
-                } else {
-                    runHttpPing(host, timeoutMs)
+        if (relax) {
+            // Battery Saver: release the WakeLock and let AlarmManager wake the
+            // device for each probe (inexact, so Android batches — natural cadence).
+            releaseWakeLock()
+            runRelaxTick()
+        } else {
+            // Precise mode: hold the WakeLock so the loop never suspends.
+            pingJob = serviceScope.launch {
+                while (isActive && isRunning) {
+                    ensureWakeLockHeld()
+                    val startElapsed = SystemClock.elapsedRealtime()
+                    performPing(host, intervalMs, timeoutMs, method, title)
+                    val elapsed = SystemClock.elapsedRealtime() - startElapsed
+                    val sleepTime = maxOf(100L, intervalMs - elapsed)
+                    delay(sleepTime)
                 }
-
-                sentCount++
-                if (latency != null && latency > 0) {
-                    recvCount++
-                    lastLatencyMs = latency
-                    if (latency < minMs) minMs = latency
-                    if (latency > maxMs) maxMs = latency
-                    sumMs += latency
-
-                    val avg = (sumMs / recvCount).toInt()
-                    val latencyInt = latency.toInt()
-                    updateNotificationThrottled(title, "Pinging $host | Latency: ${latencyInt} ms (avg ${avg} ms)")
-                    listener?.invoke(host, latencyInt, sentCount, recvCount, failCount)
-                } else {
-                    failCount++
-                    lastLatencyMs = -1.0
-                    updateNotificationThrottled(title, "Pinging $host | Timeout / Failed")
-                    listener?.invoke(host, -1, sentCount, recvCount, failCount)
-                }
-
-                val elapsed = SystemClock.elapsedRealtime() - startElapsed
-                val sleepTime = maxOf(100L, intervalMs - elapsed)
-                delay(sleepTime)
             }
+        }
+    }
+
+    private suspend fun performPing(
+        host: String,
+        intervalMs: Long,
+        timeoutMs: Int,
+        method: String,
+        title: String
+    ) {
+        val latency = if (method.equals("icmp", ignoreCase = true)) {
+            runNativePingSafely(host, timeoutMs) ?: runHttpPing(host, timeoutMs)
+        } else {
+            runHttpPing(host, timeoutMs)
+        }
+
+        sentCount++
+        if (latency != null && latency > 0) {
+            recvCount++
+            lastLatencyMs = latency
+            if (latency < minMs) minMs = latency
+            if (latency > maxMs) maxMs = latency
+            sumMs += latency
+
+            val avg = (sumMs / recvCount).toInt()
+            val latencyInt = latency.toInt()
+            updateNotificationThrottled(title, "Pinging $host | Latency: ${latencyInt} ms (avg ${avg} ms)")
+            listener?.invoke(host, latencyInt, sentCount, recvCount, failCount)
+        } else {
+            failCount++
+            lastLatencyMs = -1.0
+            updateNotificationThrottled(title, "Pinging $host | Timeout / Failed")
+            listener?.invoke(host, -1, sentCount, recvCount, failCount)
+        }
+    }
+
+    private fun runRelaxTick() {
+        if (relaxTickRunning) return
+        relaxTickRunning = true
+        val s = loadSession(this)
+        serviceScope.launch {
+            try {
+                if (isRunning && relaxMode) {
+                    performPing(s.host, s.intervalMs, s.timeoutMs, s.method, s.title)
+                }
+            } finally {
+                relaxTickRunning = false
+                if (isRunning && relaxMode) {
+                    scheduleNextRelaxAlarm(s.intervalMs)
+                }
+            }
+        }
+    }
+
+    private fun relaxPendingIntent(): PendingIntent {
+        val intent = Intent(this, NetPlusPingForegroundService::class.java)
+            .setAction(ACTION_RELAX_TICK)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PendingIntent.getForegroundService(this, relaxAlarmRequestCode, intent, flags)
+        } else {
+            PendingIntent.getService(this, relaxAlarmRequestCode, intent, flags)
+        }
+    }
+
+    private fun scheduleNextRelaxAlarm(intervalMs: Long) {
+        try {
+            if (!isRunning || !relaxMode) return
+            val alarm = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val triggerAt = SystemClock.elapsedRealtime() + maxOf(100L, intervalMs)
+            val pi = relaxPendingIntent()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // Inexact + allow-while-idle: Android may batch/defer the wake,
+                // giving the battery-friendly, naturally-paced cadence.
+                alarm.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            } else {
+                alarm.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun cancelRelaxAlarm() {
+        try {
+            val alarm = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            alarm.cancel(relaxPendingIntent())
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -289,6 +384,7 @@ class NetPlusPingForegroundService : Service() {
     private fun stopMonitoring() {
         isRunning = false
         pingJob?.cancel()
+        cancelRelaxAlarm()
         releaseWakeLock()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -303,52 +399,11 @@ class NetPlusPingForegroundService : Service() {
     }
 
     private suspend fun runNativePingSafely(rawHost: String, timeoutMs: Int): Double? {
+        val clean = cleanHost(rawHost)
+        if (clean.isEmpty()) return null
         val guardMs = ((timeoutMs + 2000).toLong()).coerceAtLeast(5000L)
-        return withTimeoutOrNull(guardMs) { runNativePing(rawHost, timeoutMs) }
-    }
-
-    private fun runNativePing(rawHost: String, timeoutMs: Int): Double? {
-        val cleanHost = cleanHost(rawHost)
-
-        if (cleanHost.isEmpty()) return null
-
-        val effectiveTimeoutMs = maxOf(timeoutMs, 3000)
-        val timeoutSec = maxOf(3, (effectiveTimeoutMs + 999) / 1000)
-
-        val cmd = arrayOf("ping", "-c", "1", "-w", "$timeoutSec", cleanHost)
-        return try {
-            val process = ProcessBuilder(*cmd)
-                .redirectErrorStream(true)
-                .start()
-
-            val exited = process.waitFor(effectiveTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            if (!exited) {
-                try {
-                    process.destroyForcibly()
-                } catch (_: Throwable) {
-                    process.destroy()
-                }
-                return null
-            }
-
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-
-            // Anti-artifact floor: reject sub-2ms RTTs so local/cache replies
-            // never surface as a fake "1ms" ping.
-            val timeMatch = TIME_REGEX.find(output)
-            if (timeMatch != null) {
-                val valMs = timeMatch.groupValues[1].toDoubleOrNull()
-                if (valMs != null && valMs >= MIN_ICMP_LATENCY_MS) return valMs
-            }
-
-            val rttMatch = RTT_REGEX.find(output)
-            val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
-            if (rttMs != null && rttMs >= MIN_ICMP_LATENCY_MS) return rttMs
-
-            // No valid RTT parsed — report a failure, never fabricate.
-            null
-        } catch (_: Exception) {
-            null
+        return withTimeoutOrNull(guardMs) {
+            IcmpPing.ping(clean, timeoutMs)
         }
     }
 

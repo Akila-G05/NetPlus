@@ -70,11 +70,12 @@ export async function startContinuousPing(
   timeoutMs: number = 3000,
   method: string = 'http',
   title: string = 'NetPlus Continuous Monitor',
-  body: string = 'Pinging...'
+  body: string = 'Pinging...',
+  relaxMode: boolean = false,
 ): Promise<boolean> {
   if (!NetPlusPing || typeof NetPlusPing.startContinuousPing !== 'function') return false;
   try {
-    return await NetPlusPing.startContinuousPing(host, intervalMs, timeoutMs, method, title, body);
+    return await NetPlusPing.startContinuousPing(host, intervalMs, timeoutMs, method, title, body, relaxMode);
   } catch {
     return false;
   }

@@ -59,9 +59,9 @@ function usePulse() {
 const TARGET_HOSTS: Record<string, string> = {
   'Google': '8.8.8.8',
   'Hutch': 'hutch.lk',
-  'Dialog': '122.255.3.98',
-  'Mobitel': '124.6.249.132',
-  'Airtel': '122.255.41.211',
+  'Dialog': 'dialog.lk',
+  'Mobitel': 'mobitel.lk',
+  'Airtel': 'airtel.lk',
 };
 
 function sanitizeHost(input: string): string {
@@ -100,6 +100,9 @@ const DEFAULT_TARGET = 'Google';
 const DEFAULT_INTERVAL = '5000 ms (5s)';
 const DEFAULT_PING_METHOD: PingMethod = 'icmp';
 
+const RELAX_OPTION = 'Battery Save Mode';
+const RELAX_CADENCE_MS = 20000;
+
 const targetOptions = [
   'Google',
   // Sri Lankan ISPs
@@ -117,6 +120,7 @@ const intervalOptions = [
   '15000 ms (15s)',
   '30000 ms (30s)',
   '60000 ms (60s)',
+  RELAX_OPTION,
 ];
 
 const EMPTY_STATS: PingStats = {
@@ -149,6 +153,7 @@ function resolveHost(targetConnection: string, customHost: string): string {
 }
 
 function parseIntervalMs(option: string): number {
+  if (option === RELAX_OPTION) return RELAX_CADENCE_MS;
   const match = option.match(/\d+/);
   return match ? Number(match[0]) : 1000;
 }
@@ -383,6 +388,7 @@ export default function PingingScreen() {
     if (!host) return;
 
     // Snapshot config so a running session isn't affected by edits
+    const relaxMode = pingInterval === RELAX_OPTION;
     const intervalMs = parseIntervalMs(pingInterval);
     // Requests are capped at MAX_PING_MS — anything slower counts as a loss
     const requestTimeoutMs = Math.min(Math.max(intervalMs * 2, 3000), MAX_PING_MS);
@@ -413,7 +419,8 @@ export default function PingingScreen() {
       requestTimeoutMs,
       pingMethod,
       'NetPlus Continuous Monitor',
-      `Pinging ${host} every ${pingInterval}`
+      relaxMode ? `Pinging ${host} in Battery Saver mode` : `Pinging ${host} every ${pingInterval}`,
+      relaxMode
     ).catch(() => { });
 
     // Subscribe to native ping results — single source of truth for all stats.
@@ -497,6 +504,12 @@ export default function PingingScreen() {
                   {pingMethod === 'icmp' ? 'ICMP' : 'HTTP'}
                 </Text>
               </View>
+              {pingInterval === RELAX_OPTION && (
+                <View style={[styles.methodBadge, { backgroundColor: 'rgba(120,220,119,0.15)' }]}>
+                  <MaterialIcons name="battery-saver" size={10} color={Colors.tertiary} />
+                  <Text style={[styles.methodBadgeText, { color: Colors.tertiary }]}>RELAX</Text>
+                </View>
+              )}
             </View>
           </TouchableOpacity>
 
@@ -508,12 +521,12 @@ export default function PingingScreen() {
             onPress={() => setConfigModalVisible(true)}
           >
             <Text style={[gs.labelCaps, styles.destinationLabel]}>Time</Text>
-            <View style={gs.chip}>
-              <MaterialIcons name="timer" size={14} color={Colors.primary} />
-              <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
-                {pingInterval}
-              </Text>
-            </View>
+<View style={gs.chip}>
+                <MaterialIcons name="timer" size={14} color={Colors.primary} />
+                <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
+                  {pingInterval === RELAX_OPTION ? 'Battery Saver' : pingInterval}
+                </Text>
+              </View>
           </TouchableOpacity>
         </View>
 

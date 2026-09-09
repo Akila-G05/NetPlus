@@ -8,7 +8,6 @@ import android.provider.Settings
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import java.util.concurrent.TimeUnit
 
 class NetPlusPingModule : Module() {
 
@@ -67,7 +66,7 @@ class NetPlusPingModule : Module() {
       runPing(host, timeout)
     }
 
-    AsyncFunction("startContinuousPing") { host: String, intervalMs: Double, timeoutMs: Double, method: String, title: String, body: String ->
+    AsyncFunction("startContinuousPing") { host: String, intervalMs: Double, timeoutMs: Double, method: String, title: String, body: String, relaxMode: Boolean ->
       val context = appContext.reactContext ?: return@AsyncFunction false
       try {
         val intent = Intent(context, NetPlusPingForegroundService::class.java).apply {
@@ -78,6 +77,7 @@ class NetPlusPingModule : Module() {
           putExtra(NetPlusPingForegroundService.EXTRA_METHOD, method)
           putExtra(NetPlusPingForegroundService.EXTRA_TITLE, title)
           putExtra(NetPlusPingForegroundService.EXTRA_BODY, body)
+          putExtra(NetPlusPingForegroundService.EXTRA_RELAX_MODE, relaxMode)
         }
         ContextCompat.startForegroundService(context, intent)
         true
@@ -210,47 +210,7 @@ class NetPlusPingModule : Module() {
 
   private fun runPing(rawHost: String, timeoutMs: Int): Double? {
     val cleanHost = NetPlusPingForegroundService.cleanHost(rawHost)
-
     if (cleanHost.isEmpty()) return null
-
-    val effectiveTimeoutMs = maxOf(timeoutMs, 3000)
-    val timeoutSec = maxOf(3, (effectiveTimeoutMs + 999) / 1000)
-
-    val cmd = arrayOf("ping", "-c", "1", "-w", "$timeoutSec", cleanHost)
-    try {
-      val process = ProcessBuilder(*cmd)
-        .redirectErrorStream(true)
-        .start()
-
-      val exited = process.waitFor(effectiveTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-      if (!exited) {
-        try {
-          process.destroyForcibly()
-        } catch (_: Throwable) {
-          process.destroy()
-        }
-        return null
-      }
-
-      val output = process.inputStream.bufferedReader().use { it.readText() }
-
-      // Anti-artifact floor: reject sub-2ms RTTs (returns from local caches /
-      // loopback / trivial replies) so they never surface as a fake "1ms" ping.
-      val timeMatch = NetPlusPingForegroundService.TIME_REGEX.find(output)
-      if (timeMatch != null) {
-        val valMs = timeMatch.groupValues[1].toDoubleOrNull()
-        if (valMs != null && valMs >= 2.0) return valMs
-      }
-
-      val rttMatch = NetPlusPingForegroundService.RTT_REGEX.find(output)
-      val rttMs = rttMatch?.groupValues?.get(1)?.toDoubleOrNull()
-      if (rttMs != null && rttMs >= 2.0) return rttMs
-
-      // No valid RTT parsed — never fabricate a latency. Report a failure instead.
-    } catch (e: Exception) {
-      e.printStackTrace()
-    }
-
-    return null
+    return IcmpPing.ping(cleanHost, timeoutMs)
   }
 }

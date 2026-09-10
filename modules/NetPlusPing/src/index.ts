@@ -102,6 +102,8 @@ export async function getBackgroundStats(): Promise<BackgroundPingStats | null> 
 
 export function addPingResultListener(listener: (event: PingResultEvent) => void) {
   if (!emitter) return { remove: () => {} };
+  // EventEmitter is typed with an empty default event map; scope the cast to
+  // the call so event names stay plain strings.
   return (emitter as any).addListener('onPingResult', listener);
 }
 

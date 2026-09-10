@@ -17,6 +17,7 @@ import {
   isIgnoringBatteryOptimizations,
   startContinuousPing,
   stopContinuousPing,
+  type BackgroundPingStats,
   type PingResultEvent,
 } from 'netplus-ping';
 import { useBatteryOnboarding } from '@/components/BatteryOnboarding';
@@ -98,6 +99,9 @@ interface PingStats {
 
 const MAX_PING_MS = 5000;
 
+// Ping method types
+type PingMethod = 'icmp' | 'http';
+
 const PING_CONFIG_KEY = '@netplus/ping-config';
 const PING_METHOD_KEY = '@netplus/ping-method';
 const DEFAULT_TARGET = 'Google';
@@ -160,7 +164,6 @@ const EMPTY_AGG: PingAggregator = {
 };
 
 const COOLDOWN_MS = 3 * 60 * 1000;
-// const COOLDOWN_MS = 1000;  //testing
 
 const AD_LOAD_ON_OPEN = false;   // load ad when app opens
 const AD_LOAD_ON_START = true; // load ad when user taps START
@@ -211,8 +214,23 @@ function seedAggFromStats(s: {
   };
 }
 
-// Ping method types
-type PingMethod = 'icmp' | 'http';
+// Derive the full stats object from the native (persisted) snapshot.
+function statsFromBackground(bg: BackgroundPingStats): PingStats {
+  const sent = bg.sent;
+  const recv = bg.recv;
+  const fail = bg.fail;
+  return {
+    min: bg.min > 0 ? bg.min : 0,
+    max: bg.max,
+    avg: bg.avg,
+    jitter: bg.jitter ?? 0,
+    lossPct: sent > 0 ? Math.round((fail / sent) * 100) : 0,
+    successPct: sent > 0 ? Math.round((recv / sent) * 100) : 0,
+    sent,
+    recv,
+    fail,
+  };
+}
 
 export default function PingingScreen() {
   const pulseScale = usePulse();
@@ -386,11 +404,8 @@ export default function PingingScreen() {
     dataUsageTracker.setPingingActive(false);
 
     const now = Date.now();
-    const isActuallyReady =
-      adLoaded.current &&
-        typeof (interstitial as any).getIsLoaded?.() === 'boolean'
-        ? (interstitial as any).getIsLoaded()
-        : adLoaded.current;
+    const getIsLoaded = (interstitial as any).getIsLoaded?.();
+    const isActuallyReady = adLoaded.current && (typeof getIsLoaded !== 'boolean' || getIsLoaded);
 
     if (isActuallyReady && now - lastAdShowTime.current >= COOLDOWN_MS) {
       console.log('[AdMob] Conditions met. Showing interstitial ad.');
@@ -422,44 +437,33 @@ export default function PingingScreen() {
   const syncBackgroundStats = useCallback(async () => {
     if (!sessionRef.current.active) return;
     const bgStats = await getBackgroundStats();
-    if (!bgStats || bgStats.sent === 0) return;
+    if (!bgStats) return;
 
-    const sent = bgStats.sent;
-    const recv = bgStats.recv;
-    const fail = bgStats.fail;
-    const lossPct = sent > 0 ? Math.round((fail / sent) * 100) : 0;
-    const successPct = sent > 0 ? Math.round((recv / sent) * 100) : 0;
+    // The native service is gone (killed / stopped while backgrounded) — end
+    // the assumed session and return to the idle START state instead of
+    // freezing on stale numbers that will never update.
+    if (!bgStats.isRunning) {
+      sessionRef.current.active = false;
+      sessionRef.current.subscription?.remove();
+      sessionRef.current.subscription = undefined;
+      dataUsageTracker.setPingingActive(false);
+      aggRef.current = { ...EMPTY_AGG };
+      setIsPinging(false);
+      setCurrentLatency(null);
+      setStats(EMPTY_STATS);
+      return;
+    }
+    if (bgStats.sent === 0) return;
 
     // Re-seed the incremental accumulator from the native (persisted) source
     // of truth so live aggregates keep continuing, not restarting.
     aggRef.current = seedAggFromStats(bgStats);
-
-    setStats({
-      min: bgStats.min > 0 ? bgStats.min : 0,
-      max: bgStats.max,
-      avg: bgStats.avg,
-      jitter: bgStats.jitter ?? 0,
-      lossPct,
-      successPct,
-      sent,
-      recv,
-      fail,
-    });
+    setStats(statsFromBackground(bgStats));
 
     if (bgStats.lastLatency > 0) {
       setCurrentLatency(Math.round(bgStats.lastLatency));
     }
   }, []);
-
-  // Sync background stats when returning to foreground
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active' && sessionRef.current.active) {
-        syncBackgroundStats();
-      }
-    });
-    return () => subscription.remove();
-  }, [syncBackgroundStats]);
 
   // Shared stats pipeline for live events (used by both new and adopted sessions).
   const handlePingResult = useCallback((event: PingResultEvent, session: PingSession) => {
@@ -528,7 +532,8 @@ export default function PingingScreen() {
     // Snapshot config so a running session isn't affected by edits
     const relaxMode = pingInterval === RELAX_OPTION;
     const intervalMs = parseIntervalMs(pingInterval);
-    // Requests are capped at MAX_PING_MS — anything slower counts as a loss
+    // ICMP caps per-probe at MAX_PING_MS — anything slower counts as a loss.
+    // (HTTP uses the native service's own 60s read budget.)
     const requestTimeoutMs = Math.min(Math.max(intervalMs * 2, 3000), MAX_PING_MS);
 
     // Stop any existing session, but do NOT stop the native foreground
@@ -574,24 +579,15 @@ export default function PingingScreen() {
     if (sessionRef.current.active) return;
     const bgStats = await getBackgroundStats();
     if (!bgStats || sessionRef.current.active) return;
-    if (!bgStats.isRunning && bgStats.sent === 0) return;
+    // Only adopt a session the native service is actually running right now.
+    // Otherwise stale persisted stats (sent > 0) would fake a live session
+    // with a frozen last-latency that never updates.
+    if (!bgStats.isRunning) return;
 
+    // Resume the persisted stats and re-arm the incremental accumulator so the
+    // walk back into live events continues where the native service left off.
     aggRef.current = seedAggFromStats(bgStats);
-
-    const sent = bgStats.sent;
-    const lossPct = sent > 0 ? Math.round((bgStats.fail / sent) * 100) : 0;
-    const successPct = sent > 0 ? Math.round((bgStats.recv / sent) * 100) : 0;
-    setStats({
-      min: bgStats.min > 0 ? bgStats.min : 0,
-      max: bgStats.max,
-      avg: bgStats.avg,
-      jitter: bgStats.jitter ?? 0,
-      lossPct,
-      successPct,
-      sent,
-      recv: bgStats.recv,
-      fail: bgStats.fail,
-    });
+    setStats(statsFromBackground(bgStats));
     if (bgStats.lastLatency > 0) {
       setCurrentLatency(Math.round(bgStats.lastLatency));
     }
@@ -605,6 +601,22 @@ export default function PingingScreen() {
       handlePingResult(event, session)
     );
   }, [handlePingResult]);
+
+  // Sync background stats when returning to foreground. If the native
+  // watchdog restarted a session while the app was backgrounded, adopt it; if
+  // an adopted service died, syncBackgroundStats tears the session down.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        if (sessionRef.current.active) {
+          syncBackgroundStats();
+        } else {
+          adoptRunningSession().catch(() => { });
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, [syncBackgroundStats, adoptRunningSession]);
 
   // On launch, resume a session the native service is still running.
   useEffect(() => {
@@ -648,12 +660,6 @@ export default function PingingScreen() {
                   {pingMethod === 'icmp' ? 'ICMP' : 'HTTP'}
                 </Text>
               </View>
-              {/* {pingInterval === RELAX_OPTION && (
-                <View style={[styles.methodBadge, { backgroundColor: 'rgba(120,220,119,0.15)' }]}>
-                  <MaterialIcons name="battery-saver" size={10} color={Colors.tertiary} />
-                  <Text style={[styles.methodBadgeText, { color: Colors.tertiary }]}>RELAX</Text>
-                </View>
-              )} */}
             </View>
           </TouchableOpacity>
 
@@ -714,7 +720,6 @@ export default function PingingScreen() {
               </>
             ) : (
               <>
-                {/* <MaterialIcons name="play-arrow" size={68} color={Colors.primary} style={{ marginBottom: 2 }} /> */}
                 <Text style={styles.startTitle}>START</Text>
                 <Text style={styles.startSubtitle}>TAP TO PING</Text>
               </>
@@ -984,18 +989,6 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: Colors.onSurfaceVariant,
     marginLeft: 2,
-  },
-  excellentBadge: {
-    backgroundColor: 'rgba(120, 220, 119, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-    marginTop: 2,
-  },
-  excellentText: {
-    ...Typography.labelCaps,
-    fontSize: 10,
-    color: Colors.tertiary,
   },
   startTitle: {
     fontSize: 26,

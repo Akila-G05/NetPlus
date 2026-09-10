@@ -18,6 +18,7 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
+import kotlin.math.abs
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -85,8 +86,7 @@ class NetPlusPingForegroundService : Service() {
         // first-byte delivery — allow up to 60s and identify as a normal
         // Android app so the request clears the WAF instead of being 403'd.
         internal const val MAX_HTTP_TIMEOUT_MS = 60_000
-        internal const val HTTP_USER_AGENT =
-            "Dalvik/2.1.0 (Linux; U; Android 12; SM-G991B Build/SP1A.210812.016)"
+        internal const val HTTP_USER_AGENT = "Dart/3.3 (dart:io)"
 
         fun cleanHost(rawHost: String): String {
             return rawHost.trim()
@@ -202,7 +202,8 @@ class NetPlusPingForegroundService : Service() {
             minMs = if (min == NO_MIN) Double.MAX_VALUE else min.toDouble()
             maxMs = p.getInt(KEY_STAT_MAX, 0).toDouble()
             sumMs = p.getInt(KEY_STAT_SUM, 0).toDouble()
-            lastLatencyMs = if (p.getInt(KEY_STAT_LAST, -1) > 0) p.getInt(KEY_STAT_LAST, -1).toDouble() else -1.0
+            val last = p.getInt(KEY_STAT_LAST, -1)
+            lastLatencyMs = if (last > 0) last.toDouble() else -1.0
             prevLatencyMs = if (lastLatencyMs > 0) lastLatencyMs else -1.0
             jitterSumMs = p.getInt(KEY_STAT_JITTER_SUM, 0).toDouble()
             jitterCount = p.getInt(KEY_STAT_JITTER_COUNT, 0)
@@ -435,7 +436,7 @@ class NetPlusPingForegroundService : Service() {
                 while (isActive && isRunning) {
                     ensureWakeLockHeld()
                     val startElapsed = SystemClock.elapsedRealtime()
-                    performPing(host, intervalMs, timeoutMs, method, title)
+                    performPing(host, timeoutMs, method, title)
                     val elapsed = SystemClock.elapsedRealtime() - startElapsed
                     val sleepTime = maxOf(100L, intervalMs - elapsed)
                     delay(sleepTime)
@@ -446,15 +447,14 @@ class NetPlusPingForegroundService : Service() {
 
     private suspend fun performPing(
         host: String,
-        intervalMs: Long,
         timeoutMs: Int,
         method: String,
         title: String
     ) {
         val latency = if (method.equals("icmp", ignoreCase = true)) {
-            runNativePingSafely(host, timeoutMs) ?: runHttpPing(host, timeoutMs)
+            runNativePingSafely(host, timeoutMs) ?: runHttpPing(host)
         } else {
-            runHttpPing(host, timeoutMs)
+            runHttpPing(host)
         }
 
         sentCount++
@@ -462,7 +462,7 @@ class NetPlusPingForegroundService : Service() {
             recvCount++
             lastLatencyMs = latency
             if (prevLatencyMs > 0) {
-                jitterSumMs += kotlin.math.abs(latency - prevLatencyMs)
+                jitterSumMs += abs(latency - prevLatencyMs)
                 jitterCount++
             }
             prevLatencyMs = latency
@@ -490,7 +490,7 @@ class NetPlusPingForegroundService : Service() {
         serviceScope.launch {
             try {
                 if (isRunning && relaxMode) {
-                    performPing(s.host, s.intervalMs, s.timeoutMs, s.method, s.title)
+                    performPing(s.host, s.timeoutMs, s.method, s.title)
                 }
             } finally {
                 relaxTickRunning = false
@@ -575,7 +575,7 @@ class NetPlusPingForegroundService : Service() {
         }
     }
 
-    private fun runHttpPing(rawHost: String, timeoutMs: Int): Double? {
+    private fun runHttpPing(rawHost: String): Double? {
         val cleanHost = cleanHost(rawHost)
 
         var targetUrlStr = "https://$cleanHost/"
@@ -591,6 +591,9 @@ class NetPlusPingForegroundService : Service() {
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("User-Agent", HTTP_USER_AGENT)
+            // dart:io sends this by default (autoUncompress=true); matching the
+            // full header set keeps WAFs from fingerprinting the client.
+            conn.setRequestProperty("Accept-Encoding", "gzip")
             conn.connectTimeout = MAX_HTTP_TIMEOUT_MS
             conn.readTimeout = MAX_HTTP_TIMEOUT_MS
             conn.instanceFollowRedirects = true
@@ -601,11 +604,17 @@ class NetPlusPingForegroundService : Service() {
             val latency = (System.currentTimeMillis() - start).toDouble()
             // Discard sub-floor RTTs (CDN-local cache hits measure ~1ms, not a
             // real network RTT) so HTTP pinging reports realistic latencies.
-            if (code in 200..399 && latency >= MIN_HTTP_LATENCY_MS) latency else null
+            if (isReachableHttpStatus(code) && latency >= MIN_HTTP_LATENCY_MS) latency else null
         } catch (_: Exception) {
             null
         }
     }
+
+    // A response at all means the server was reached and answered. 2xx/3xx are
+    // a normal success; 403 (e.g. WAF gating like oneapp.hutch.lk) still proves
+    // reachability, so it counts as a successful ping instead of a lost one.
+    private fun isReachableHttpStatus(code: Int): Boolean =
+        code in 200..399 || code == 403
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
@@ -33,6 +34,8 @@ class NetPlusPingForegroundService : Service() {
     private val relaxAlarmRequestCode = 2001
 
     companion object {
+        private const val LOG_TAG = "NetPlusPing"
+
         const val CHANNEL_ID = "netplus_ping_channel"
         const val NOTIFICATION_ID = 1001
 
@@ -451,11 +454,17 @@ class NetPlusPingForegroundService : Service() {
         method: String,
         title: String
     ) {
-        val latency = if (method.equals("icmp", ignoreCase = true)) {
-            runNativePingSafely(host, timeoutMs) ?: runHttpPing(host)
+        // ICMP first (delegates to the kernel echo path); if the network blocks
+        // ICMP it falls back to an HTTP probe, which retries transient network
+        // failures internally.
+        val result = if (method.equals("icmp", ignoreCase = true)) {
+            runNativePingSafely(host, timeoutMs)?.let { lat ->
+                HttpProbeResult(lat, "ICMP", retryable = false)
+            } ?: runHttpPing(host)
         } else {
             runHttpPing(host)
         }
+        val latency = result.latency
 
         sentCount++
         if (latency != null && latency > 0) {
@@ -477,7 +486,8 @@ class NetPlusPingForegroundService : Service() {
         } else {
             failCount++
             lastLatencyMs = -1.0
-            updateNotificationThrottled(title, "Pinging $host | Timeout / Failed")
+            val reason = result.reason.ifEmpty { "Unknown" }
+            updateNotificationThrottled(title, "Pinging $host | Failed ($reason)")
             listener?.invoke(host, -1, sentCount, recvCount, failCount)
         }
         persistStats(this)
@@ -575,7 +585,12 @@ class NetPlusPingForegroundService : Service() {
         }
     }
 
-    private fun runHttpPing(rawHost: String): Double? {
+    // Result of a single HTTP probe. `reason` names the outcome (an HTTP status
+    // code or the exception class); `retryable` is true only for network-level
+    // failures (timeout / TLS / reset) that a retry could plausibly fix.
+    private data class HttpProbeResult(val latency: Double?, val reason: String, val retryable: Boolean)
+
+    private fun runHttpPing(rawHost: String): HttpProbeResult {
         val cleanHost = cleanHost(rawHost)
 
         var targetUrlStr = "https://$cleanHost/"
@@ -585,6 +600,21 @@ class NetPlusPingForegroundService : Service() {
             targetUrlStr = "https://1.1.1.1/cdn-cgi/trace"
         }
 
+        // Network-level failures on WAF-backed targets (e.g. oneapp.hutch.lk) are
+        // frequently intermittent — retry once before conceding a lost ping. Bad
+        // HTTP status codes (404, 500) are never retried; they won't change.
+        var result = httpProbe(targetUrlStr)
+        if (result.latency == null && result.retryable) {
+            Log.w(LOG_TAG, "HTTP ping $cleanHost failed (${result.reason}) — retrying once")
+            result = httpProbe(targetUrlStr)
+        }
+        if (result.latency == null) {
+            Log.w(LOG_TAG, "HTTP ping $cleanHost failed (${result.reason})")
+        }
+        return result
+    }
+
+    private fun httpProbe(targetUrlStr: String): HttpProbeResult {
         val start = System.currentTimeMillis()
         return try {
             val url = URL(targetUrlStr)
@@ -602,11 +632,17 @@ class NetPlusPingForegroundService : Service() {
             conn.disconnect()
 
             val latency = (System.currentTimeMillis() - start).toDouble()
-            // Discard sub-floor RTTs (CDN-local cache hits measure ~1ms, not a
-            // real network RTT) so HTTP pinging reports realistic latencies.
-            if (isReachableHttpStatus(code) && latency >= MIN_HTTP_LATENCY_MS) latency else null
-        } catch (_: Exception) {
-            null
+            // Any reachable status (200/301/302/403) proves the server answered.
+            // The floor clamps the *reported* latency (CDN-local cache hits
+            // measure ~1ms, not a real network RTT) without voiding the ping —
+            // a fast WAF 403 must still count as a successful, reachable probe.
+            if (isReachableHttpStatus(code)) {
+                HttpProbeResult(maxOf(latency, MIN_HTTP_LATENCY_MS), "HTTP $code", retryable = false)
+            } else {
+                HttpProbeResult(null, "HTTP $code", retryable = false)
+            }
+        } catch (e: Exception) {
+            HttpProbeResult(null, e::class.java.simpleName, retryable = true)
         }
     }
 

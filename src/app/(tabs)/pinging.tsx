@@ -72,7 +72,7 @@ const TARGET_HOSTS: Record<string, string> = {
   'Google': '8.8.8.8',
   'Hutch': 'https://oneapp.hutch.lk',
   'Dialog': 'https://selfcare.dialog.lk',
-  'Mobitel': 'https://mas.mobitel.lk',
+  'Mobitel': 'https://mobitel.lk',
   'Airtel': 'https://my.airtel.lk',
 };
 

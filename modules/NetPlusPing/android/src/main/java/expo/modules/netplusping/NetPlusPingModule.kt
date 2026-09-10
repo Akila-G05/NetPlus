@@ -14,7 +14,7 @@ class NetPlusPingModule : Module() {
   companion object {
     private var instance: NetPlusPingModule? = null
 
-    fun emitPingResult(host: String, latency: Int, sent: Int, recv: Int, fail: Int) {
+    fun emitPingResult(host: String, latency: Int, sent: Int, recv: Int, fail: Int, reason: String) {
       instance?.sendEvent(
         "onPingResult",
         mapOf(
@@ -22,7 +22,8 @@ class NetPlusPingModule : Module() {
           "latency" to latency,
           "sent" to sent,
           "recv" to recv,
-          "fail" to fail
+          "fail" to fail,
+          "reason" to reason
         )
       )
     }
@@ -47,8 +48,8 @@ class NetPlusPingModule : Module() {
 
     OnCreate {
       instance = this@NetPlusPingModule
-      NetPlusPingForegroundService.listener = { host, latency, sent, recv, fail ->
-        emitPingResult(host, latency, sent, recv, fail)
+      NetPlusPingForegroundService.listener = { host, latency, sent, recv, fail, reason ->
+        emitPingResult(host, latency, sent, recv, fail, reason)
       }
       NetPlusSpeedTestForegroundService.listener = { phase, current, pingMs, dl, ul ->
         emitSpeedTestProgress(phase, current, pingMs, dl, ul)

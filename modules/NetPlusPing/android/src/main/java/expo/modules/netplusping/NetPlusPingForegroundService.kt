@@ -19,9 +19,19 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
+import kotlin.jvm.Synchronized
 import kotlin.math.abs
+import org.chromium.net.CronetEngine
+import org.chromium.net.CronetException
+import org.chromium.net.NetworkException
+import org.chromium.net.RequestPriority
+import org.chromium.net.UrlRequest
+import org.chromium.net.UrlResponseInfo
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 class NetPlusPingForegroundService : Service() {
 
@@ -32,6 +42,14 @@ class NetPlusPingForegroundService : Service() {
     private var relaxMode = false
     private var relaxTickRunning = false
     private val relaxAlarmRequestCode = 2001
+
+    // Lazy Cronet engine (Chromium/BoringSSL TLS). Fall back to HttpURLConnection
+    // if the native library can't be initialized on some ABI.
+    @Volatile
+    private var cronetEngine: CronetEngine? = null
+    private val cronetExecutor: Executor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "netplus-cronet").apply { isDaemon = true }
+    }
 
     companion object {
         private const val LOG_TAG = "NetPlusPing"
@@ -84,11 +102,11 @@ class NetPlusPingForegroundService : Service() {
 
         internal const val MIN_HTTP_LATENCY_MS = 5.0
 
-        // Z-Pinger parity: portal targets (e.g. oneapp.hutch.lk) sit behind
-        // WAFs that challenge bare Java HttpURLConnections and can stall
-        // first-byte delivery — allow up to 60s and identify as a normal
-        // Android app so the request clears the WAF instead of being 403'd.
-        internal const val MAX_HTTP_TIMEOUT_MS = 60_000
+        // A ping that takes longer than 5s is treated as failed, and the probe
+        // wait is capped at 5s too — a stalled WAF response costs one retry
+        // (~5s) instead of blocking the feed for 60s. Identifies as a normal
+        // Android app (dart:io UA) so the request clears the WAF where it can.
+        internal const val MAX_PING_LATENCY_MS = 5000.0
         internal const val HTTP_USER_AGENT = "Dart/3.3 (dart:io)"
 
         fun cleanHost(rawHost: String): String {
@@ -98,8 +116,7 @@ class NetPlusPingForegroundService : Service() {
                 .split(":")[0]
         }
 
-        // Shared module listener
-        var listener: ((String, Int, Int, Int, Int) -> Unit)? = null
+        var listener: ((String, Int, Int, Int, Int, String) -> Unit)? = null
 
         // In-memory stats accessible by module
         var isRunning = false
@@ -284,7 +301,7 @@ class NetPlusPingForegroundService : Service() {
 
         // ── Periodic crash-recovery watchdog ─────────────────────────────
         fun watchdogPendingIntent(context: Context): PendingIntent {
-            val intent = Intent(context, NetPlusPingBootReceiver::class.java)
+            val intent = Intent(context, NetPlusPingWatchdogReceiver::class.java)
                 .setAction(ACTION_WATCHDOG_TICK)
             return PendingIntent.getBroadcast(
                 context,
@@ -464,7 +481,13 @@ class NetPlusPingForegroundService : Service() {
         } else {
             runHttpPing(host)
         }
-        val latency = result.latency
+        // A measured ping above 5s counts as failed. HTTP probes already cap
+        // their own wait; this covers ICMP where the wait is the user timeout.
+        var latency = result.latency
+        if (latency != null && latency > MAX_PING_LATENCY_MS) {
+            Log.w(LOG_TAG, "ping exceeded ${MAX_PING_LATENCY_MS.toInt()}ms — marked failed")
+            latency = null
+        }
 
         sentCount++
         if (latency != null && latency > 0) {
@@ -482,13 +505,13 @@ class NetPlusPingForegroundService : Service() {
             val avg = (sumMs / recvCount).toInt()
             val latencyInt = latency.toInt()
             updateNotificationThrottled(title, "Pinging $host | Latency: ${latencyInt} ms (avg ${avg} ms)")
-            listener?.invoke(host, latencyInt, sentCount, recvCount, failCount)
+            listener?.invoke(host, latencyInt, sentCount, recvCount, failCount, result.reason.ifEmpty { "OK" })
         } else {
             failCount++
             lastLatencyMs = -1.0
             val reason = result.reason.ifEmpty { "Unknown" }
             updateNotificationThrottled(title, "Pinging $host | Failed ($reason)")
-            listener?.invoke(host, -1, sentCount, recvCount, failCount)
+            listener?.invoke(host, -1, sentCount, recvCount, failCount, result.reason.ifEmpty { "Unknown" })
         }
         persistStats(this)
     }
@@ -590,7 +613,7 @@ class NetPlusPingForegroundService : Service() {
     // failures (timeout / TLS / reset) that a retry could plausibly fix.
     private data class HttpProbeResult(val latency: Double?, val reason: String, val retryable: Boolean)
 
-    private fun runHttpPing(rawHost: String): HttpProbeResult {
+    private suspend fun runHttpPing(rawHost: String): HttpProbeResult {
         val cleanHost = cleanHost(rawHost)
 
         var targetUrlStr = "https://$cleanHost/"
@@ -603,10 +626,11 @@ class NetPlusPingForegroundService : Service() {
         // Network-level failures on WAF-backed targets (e.g. oneapp.hutch.lk) are
         // frequently intermittent — retry once before conceding a lost ping. Bad
         // HTTP status codes (404, 500) are never retried; they won't change.
-        var result = httpProbe(targetUrlStr)
+        val allow403 = isHutchTarget(cleanHost)
+        var result = httpProbe(targetUrlStr, allow403)
         if (result.latency == null && result.retryable) {
             Log.w(LOG_TAG, "HTTP ping $cleanHost failed (${result.reason}) — retrying once")
-            result = httpProbe(targetUrlStr)
+            result = httpProbe(targetUrlStr, allow403)
         }
         if (result.latency == null) {
             Log.w(LOG_TAG, "HTTP ping $cleanHost failed (${result.reason})")
@@ -614,7 +638,106 @@ class NetPlusPingForegroundService : Service() {
         return result
     }
 
-    private fun httpProbe(targetUrlStr: String): HttpProbeResult {
+    private suspend fun httpProbe(targetUrlStr: String, allow403: Boolean): HttpProbeResult {
+        val engine = getCronetEngine()
+        return if (engine != null) {
+            cronetProbe(engine, targetUrlStr, allow403)
+        } else {
+            legacyHttpProbe(targetUrlStr, allow403)
+        }
+    }
+
+    @Synchronized
+    private fun getCronetEngine(): CronetEngine? {
+        if (cronetEngine == null) {
+            cronetEngine = try {
+                CronetEngine.Builder(this)
+                    .enableQuic(false)           // TCP+TLS probes only: stable, comparable latencies
+                    .enableHttp2(true)           // negotiate HTTP/2 where the server supports it
+                    .enableBrotli(false)         // keep gzip-only, matching the legacy header set
+                    .setUserAgent(HTTP_USER_AGENT)
+                    .build()
+            } catch (e: Throwable) {
+                Log.w(LOG_TAG, "Cronet init failed — falling back to HttpURLConnection (${e.message})")
+                null
+            }
+        }
+        return cronetEngine
+    }
+
+    // Cronet probes are asynchronous — bridge them back onto the coroutine. The
+    // status code is available at onResponseStarted (headers received), so we
+    // resume there and cancel the request without reading the body.
+    private suspend fun cronetProbe(engine: CronetEngine, targetUrlStr: String, allow403: Boolean): HttpProbeResult {
+        val start = System.currentTimeMillis()
+        return try {
+            withTimeoutOrNull(MAX_PING_LATENCY_MS.toLong()) {
+                suspendCancellableCoroutine { cont ->
+                    val callback = object : UrlRequest.Callback() {
+                        override fun onRedirectReceived(
+                            request: UrlRequest?,
+                            info: UrlResponseInfo?,
+                            newLocationUrl: String?
+                        ) {
+                            request?.followRedirect()
+                        }
+
+                        override fun onResponseStarted(request: UrlRequest?, info: UrlResponseInfo?) {
+                            val code = info?.httpStatusCode ?: 0
+                            val latency = (System.currentTimeMillis() - start).toDouble()
+                            val acceptable = isAcceptableStatus(code, allow403)
+                            if (acceptable && latency <= MAX_PING_LATENCY_MS) {
+                                cont.resume(HttpProbeResult(maxOf(latency, MIN_HTTP_LATENCY_MS), "HTTP $code", retryable = false)) { }
+                            } else {
+                                cont.resume(HttpProbeResult(null, if (acceptable) "HTTP $code too slow" else "HTTP $code", retryable = false)) { }
+                            }
+                            request?.cancel()
+                        }
+
+                        override fun onReadCompleted(request: UrlRequest?, info: UrlResponseInfo?, byteBuffer: ByteBuffer?) {}
+
+                        override fun onSucceeded(request: UrlRequest?, info: UrlResponseInfo?) {
+                            if (cont.isActive) {
+                                cont.resume(HttpProbeResult(null, "Completed without status", retryable = false)) { }
+                            }
+                        }
+
+                        override fun onFailed(request: UrlRequest?, info: UrlResponseInfo?, error: CronetException?) {
+                            if (cont.isActive) {
+                                cont.resume(HttpProbeResult(null, describeCronetError(error), retryable = true)) { }
+                            }
+                        }
+
+                        override fun onCanceled(request: UrlRequest?, info: UrlResponseInfo?) {
+                            if (cont.isActive) {
+                                cont.resume(HttpProbeResult(null, "Cancelled", retryable = false)) { }
+                            }
+                        }
+                    }
+
+                    val request = engine.newUrlRequestBuilder(targetUrlStr, callback, cronetExecutor)
+                        .setPriority(RequestPriority.IDLE)
+                        .setHttpMethod("GET")
+                        .addHeader("User-Agent", HTTP_USER_AGENT)
+                        .addHeader("Accept-Encoding", "gzip")
+                        .build()
+                    cont.invokeOnCancellation { request.cancel() }
+                    request.start()
+                }
+            } ?: HttpProbeResult(null, "Timeout", retryable = true)
+        } catch (e: Exception) {
+            HttpProbeResult(null, e::class.java.simpleName, retryable = true)
+        }
+    }
+
+    private fun describeCronetError(error: CronetException?): String = when (error) {
+        is NetworkException -> "NET_${error.errorCode} ${error.message?.take(48)?.trim()}"
+        else -> error?.javaClass?.simpleName ?: "CronetError"
+    }
+
+    // Fallback engine: plain Java HttpURLConnection (Conscrypt TLS). Kept so a
+    // Cronet init/native failure can never break the ping probe.
+    private fun legacyHttpProbe(targetUrlStr: String, allow403: Boolean): HttpProbeResult {
         val start = System.currentTimeMillis()
         return try {
             val url = URL(targetUrlStr)
@@ -624,33 +747,44 @@ class NetPlusPingForegroundService : Service() {
             // dart:io sends this by default (autoUncompress=true); matching the
             // full header set keeps WAFs from fingerprinting the client.
             conn.setRequestProperty("Accept-Encoding", "gzip")
-            conn.connectTimeout = MAX_HTTP_TIMEOUT_MS
-            conn.readTimeout = MAX_HTTP_TIMEOUT_MS
+            conn.connectTimeout = MAX_PING_LATENCY_MS.toInt()
+            conn.readTimeout = MAX_PING_LATENCY_MS.toInt()
             conn.instanceFollowRedirects = true
             conn.connect()
             val code = conn.responseCode
             conn.disconnect()
 
             val latency = (System.currentTimeMillis() - start).toDouble()
-            // Any reachable status (200/301/302/403) proves the server answered.
-            // The floor clamps the *reported* latency (CDN-local cache hits
-            // measure ~1ms, not a real network RTT) without voiding the ping —
-            // a fast WAF 403 must still count as a successful, reachable probe.
-            if (isReachableHttpStatus(code)) {
+            // 2xx/3xx proves the server answered. The floor clamps the reported
+            // latency (CDN-local cache hits measure ~1ms, not a real network RTT)
+            // without voiding an otherwise-good ping; a result above 5s fails.
+            val acceptable = isAcceptableStatus(code, allow403)
+            if (acceptable && latency <= MAX_PING_LATENCY_MS) {
                 HttpProbeResult(maxOf(latency, MIN_HTTP_LATENCY_MS), "HTTP $code", retryable = false)
             } else {
-                HttpProbeResult(null, "HTTP $code", retryable = false)
+                HttpProbeResult(null, if (acceptable) "HTTP $code too slow" else "HTTP $code", retryable = false)
             }
         } catch (e: Exception) {
             HttpProbeResult(null, e::class.java.simpleName, retryable = true)
         }
     }
 
-    // A response at all means the server was reached and answered. 2xx/3xx are
-    // a normal success; 403 (e.g. WAF gating like oneapp.hutch.lk) still proves
-    // reachability, so it counts as a successful ping instead of a lost one.
+    // Only 2xx/3xx are successful pings. Non-2xx/3xx statuses — including a
+    // WAF 403 (e.g. oneapp.hutch.lk gating) — mean the probe reached the server
+    // but wasn't served cleanly, so they count as failed.
     private fun isReachableHttpStatus(code: Int): Boolean =
-        code in 200..399 || code == 403
+        code in 200..399
+
+    // Z-Pinger parity for the Hutch portal (oneapp.hutch.lk): its WAF edge
+    // answers every TLS/TCP connect fast with an IP-level 403 challenge even
+    // for allowed clients. ZPinger special-cases this host ("SPECIAL FIX FOR
+    // HUTCH") and treats that edge 403 as a reachable ping — so do we, but only
+    // for hutch.lk targets. Everywhere else 403 stays a failure.
+    private fun isHutchTarget(cleanHost: String): Boolean =
+        cleanHost.endsWith("hutch.lk", ignoreCase = true)
+
+    private fun isAcceptableStatus(code: Int, allow403: Boolean): Boolean =
+        isReachableHttpStatus(code) || (allow403 && code == 403)
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -725,7 +859,7 @@ class NetPlusPingForegroundService : Service() {
     private fun scheduleWatchdogRestart() {
         try {
             val alarm = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-            val intent = Intent(this, NetPlusPingBootReceiver::class.java)
+            val intent = Intent(this, NetPlusPingWatchdogReceiver::class.java)
                 .setAction(ACTION_WATCHDOG_RESTART)
             val pi = PendingIntent.getBroadcast(
                 this,
@@ -734,11 +868,11 @@ class NetPlusPingForegroundService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val triggerAt = SystemClock.elapsedRealtime() + 1000L
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarm.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-            } else {
-                alarm.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-            }
+            // Inexact `set`: exact alarms (setExactAndAllowWhileIdle) require
+            // SCHEDULE_EXACT_ALARM on API 31+ and are denied by default for new
+            // installs — an inexact 1s alarm still fires within a couple seconds,
+            // permission-free, which is all this fast-restart needs.
+            alarm.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -748,6 +882,13 @@ class NetPlusPingForegroundService : Service() {
         val shouldRestart = !userStopped && isRunning && loadSession(this).active
         stopMonitoring()
         serviceScope.cancel()
+        // Release the Cronet native resources held by this service instance.
+        try {
+            cronetEngine?.shutdown()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        cronetEngine = null
         super.onDestroy()
         if (shouldRestart) {
             // Keep the periodic watchdog armed and fire a fast 1s restart too.

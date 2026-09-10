@@ -9,6 +9,8 @@ export interface PingResultEvent {
   sent: number;
   recv: number;
   fail: number;
+  /** Outcome label for the last probe, e.g. "ICMP", "HTTP 200", "HTTP 403", "Timeout". */
+  reason?: string;
 }
 
 export interface BackgroundPingStats {

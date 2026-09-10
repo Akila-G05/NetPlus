@@ -9,34 +9,20 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
- * Restarts background pinging after device reboot, app update, or an
- * OS-initiated service death (watchdog).
+ * Restarts background pinging after device reboot or app update. Exported
+ * because it listens for system broadcasts. The timer-based crash-recovery
+ * watchdog lives in [NetPlusPingWatchdogReceiver] (non-exported).
  */
 class NetPlusPingBootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
 
-        // Periodic crash-recovery tick: restart a dead service, always re-arm.
-        if (action == NetPlusPingForegroundService.ACTION_WATCHDOG_TICK) {
-            val session = NetPlusPingForegroundService.loadSession(context)
-            if (!session.active) {
-                NetPlusPingForegroundService.cancelWatchdogAlarm(context)
-                return
-            }
-            if (!NetPlusPingForegroundService.isRunning) {
-                restart(context, session)
-            }
-            NetPlusPingForegroundService.scheduleWatchdogAlarm(context)
-            return
-        }
-
         val restartRelevant = when (action) {
             ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",
             "android.intent.action.REBOOT",
-            ACTION_MY_PACKAGE_REPLACED,
-            NetPlusPingForegroundService.ACTION_WATCHDOG_RESTART -> true
+            ACTION_MY_PACKAGE_REPLACED -> true
             else -> false
         }
         if (!restartRelevant) return

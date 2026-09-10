@@ -1,0 +1,143 @@
+diff --git a/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/ConnectivityReceiver.java b/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/ConnectivityReceiver.java
+index 591ddca..22637fa 100644
+--- a/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/ConnectivityReceiver.java
++++ b/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/ConnectivityReceiver.java
+@@ -8,8 +8,12 @@ package com.reactnativecommunity.netinfo;
+ 
+ import android.content.Context;
+ import android.net.ConnectivityManager;
++import android.net.NetworkInfo;
+ import android.net.wifi.WifiInfo;
+ import android.net.wifi.WifiManager;
++import android.os.Build;
++import android.telephony.SubscriptionInfo;
++import android.telephony.SubscriptionManager;
+ import android.telephony.TelephonyManager;
+ 
+ import com.facebook.react.bridge.Arguments;
+@@ -107,6 +111,85 @@ public abstract class ConnectivityReceiver {
+         return mConnectivityManager;
+     }
+ 
++    private int getDefaultDataSubscriptionId() {
++        try {
++            SubscriptionManager subscriptionManager =
++                    (SubscriptionManager)
++                            getReactContext().getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
++            if (subscriptionManager == null) {
++                return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
++            }
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++                return subscriptionManager.getDefaultDataSubscriptionId();
++            }
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
++                // getDefaultDataSubId() was deprecated and removed from the SDK stubs on newer
++                // platforms, so invoke it reflectively on older devices (API 24-28).
++                java.lang.reflect.Method method =
++                        SubscriptionManager.class.getMethod("getDefaultDataSubId");
++                return ((Integer) method.invoke(subscriptionManager)).intValue();
++            }
++        } catch (Exception e) {
++            // ignore, fall back to the default telephony manager below
++        }
++        return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
++    }
++
++    // On dual-SIM devices the default TelephonyManager is bound to the primary SIM, which may not be
++    // the SIM that provides mobile data. Resolve the carrier from the active data subscription instead.
++    private String getCellularCarrierName() {
++        int subId = getDefaultDataSubscriptionId();
++        if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
++            try {
++                SubscriptionManager subscriptionManager =
++                        (SubscriptionManager)
++                                getReactContext().getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
++                if (subscriptionManager != null) {
++                    // Prefer the subscription carrier name, which matches how the SIM is labeled.
++                    SubscriptionInfo subscriptionInfo = subscriptionManager.getActiveSubscriptionInfo(subId);
++                    if (subscriptionInfo != null) {
++                        CharSequence carrierName = subscriptionInfo.getCarrierName();
++                        if (carrierName != null && carrierName.length() > 0) {
++                            return carrierName.toString();
++                        }
++                    }
++                    // Otherwise use the telephony network operator bound to the data subscription.
++                    TelephonyManager dataTelephonyManager = mTelephonyManager.createForSubscriptionId(subId);
++                    if (dataTelephonyManager != null) {
++                        String operator = dataTelephonyManager.getNetworkOperatorName();
++                        if (operator != null && !operator.isEmpty()) {
++                            return operator;
++                        }
++                    }
++                }
++            } catch (Exception e) {
++                // ignore, fall back to the default telephony manager below
++            }
++        }
++        return mTelephonyManager.getNetworkOperatorName();
++    }
++
++    // Derive the cellular generation from the radio that serves the active data subscription, falling
++    // back to the (deprecated) NetworkInfo path when unavailable.
++    protected @Nullable CellularGeneration getDataSubscriptionCellularGeneration(@Nullable NetworkInfo fallback) {
++        int subId = getDefaultDataSubscriptionId();
++        if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
++            try {
++                TelephonyManager dataTelephonyManager = mTelephonyManager.createForSubscriptionId(subId);
++                if (dataTelephonyManager != null) {
++                    CellularGeneration generation =
++                            CellularGeneration.fromNetworkType(dataTelephonyManager.getNetworkType());
++                    if (generation != null) {
++                        return generation;
++                    }
++                }
++            } catch (Exception e) {
++                // ignore, fall back below
++            }
++        }
++        return CellularGeneration.fromNetworkInfo(fallback);
++    }
++
+     void updateConnectivity(
+             @Nonnull ConnectionType connectionType,
+             @Nullable CellularGeneration cellularGeneration,
+@@ -186,7 +269,7 @@ public abstract class ConnectivityReceiver {
+                 }
+ 
+                 // Add the network operator name, if there is one
+-                String carrier = mTelephonyManager.getNetworkOperatorName();
++                String carrier = getCellularCarrierName();
+                 if (carrier != null) {
+                     details.putString("carrier", carrier);
+                 }
+diff --git a/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/NetworkCallbackConnectivityReceiver.java b/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/NetworkCallbackConnectivityReceiver.java
+index 252d1e7..b4788c2 100644
+--- a/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/NetworkCallbackConnectivityReceiver.java
++++ b/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/NetworkCallbackConnectivityReceiver.java
+@@ -139,7 +139,7 @@ public class NetworkCallbackConnectivityReceiver extends ConnectivityReceiver {
+ 
+             // Get the cellular network type
+             if (network != null && connectionType == ConnectionType.CELLULAR && isInternetReachable) {
+-                cellularGeneration = CellularGeneration.fromNetworkInfo(networkInfo);
++                cellularGeneration = getDataSubscriptionCellularGeneration(networkInfo);
+             }
+         } else {
+             connectionType = ConnectionType.NONE;
+diff --git a/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/types/CellularGeneration.java b/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/types/CellularGeneration.java
+index 8b56484..a60d999 100644
+--- a/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/types/CellularGeneration.java
++++ b/node_modules/@react-native-community/netinfo/android/src/main/java/com/reactnativecommunity/netinfo/types/CellularGeneration.java
+@@ -30,8 +30,12 @@ public enum CellularGeneration {
+         if (networkInfo == null) {
+             return null;
+         }
++        return fromNetworkType(networkInfo.getSubtype());
++    }
+ 
+-        switch (networkInfo.getSubtype()) {
++    @Nullable
++    public static CellularGeneration fromNetworkType(int networkType) {
++        switch (networkType) {
+             case TelephonyManager.NETWORK_TYPE_1xRTT:
+             case TelephonyManager.NETWORK_TYPE_CDMA:
+             case TelephonyManager.NETWORK_TYPE_EDGE:

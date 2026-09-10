@@ -14,6 +14,8 @@ export interface PingLogEntry {
   host: string;
   /** Round-trip latency in ms, null when the ping failed */
   latency: number | null;
+  /** Outcome label for failures, e.g. "HTTP 403", "Timeout" */
+  reason?: string;
 }
 
 interface PingLogProps {
@@ -22,7 +24,8 @@ interface PingLogProps {
 }
 
 function formatResult(entry: PingLogEntry): string {
-  return entry.latency === null ? 'FAIL' : `${entry.latency} ms`;
+  if (entry.latency !== null) return `${entry.latency} ms`;
+  return entry.reason ? `FAIL · ${entry.reason}` : 'FAIL';
 }
 
 export default React.memo(function PingLog({ entries, maxHeight = 200 }: PingLogProps) {
@@ -53,7 +56,7 @@ export default React.memo(function PingLog({ entries, maxHeight = 200 }: PingLog
               >
                 <Text style={styles.time}>{entry.time}</Text>
                 <Text style={styles.host} numberOfLines={1}>
-                  
+                 
                 </Text>
                 <Text
                   style={[

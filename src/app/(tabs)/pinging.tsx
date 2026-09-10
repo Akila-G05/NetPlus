@@ -1,3 +1,4 @@
+import { useBatteryOnboarding } from '@/components/BatteryOnboarding';
 import ConnectionStatusBar from '@/components/ConnectionStatusBar';
 import PingLog, { type PingLogEntry } from '@/components/PingLog';
 import SettingsRow from '@/components/SettingsRow';
@@ -6,11 +7,11 @@ import StatBox from '@/components/StatBox';
 import { LOG_ENABLED_DEFAULT, LOG_ENABLED_KEY, MAX_LOG_ENTRIES } from '@/constants/pingConfig';
 import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
 import { dataUsageTracker } from '@/services/DataUsageTracker';
-import { notificationService } from '@/services/NotificationService';
 import { AdEventType, InterstitialAd, MobileAds, TestIds } from '@/services/MobileAdsService';
 import { gs } from '@/styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from 'expo-router';
 import {
   addPingResultListener,
   getBackgroundStats,
@@ -20,8 +21,6 @@ import {
   type BackgroundPingStats,
   type PingResultEvent,
 } from 'netplus-ping';
-import { useBatteryOnboarding } from '@/components/BatteryOnboarding';
-import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -61,12 +60,20 @@ function usePulse() {
 // Real ISP infrastructure IPs (not CDN/portal domains). The old portal domains
 // resolve to CDN/Imperva edges inside Sri Lanka that answer from local caches,
 // producing a constant ~1ms artifact instead of a real network RTT.
+// const TARGET_HOSTS: Record<string, string> = {
+//   'Google': '8.8.8.8',
+//   'Hutch': 'hutch.lk',
+//   'Dialog': 'dialog.lk',
+//   'Mobitel': 'mobitel.lk',
+//   'Airtel': 'airtel.lk',
+// };
+
 const TARGET_HOSTS: Record<string, string> = {
   'Google': '8.8.8.8',
-  'Hutch': 'hutch.lk',
-  'Dialog': 'dialog.lk',
-  'Mobitel': 'mobitel.lk',
-  'Airtel': 'airtel.lk',
+  'Hutch': 'https://oneapp.hutch.lk',
+  'Dialog': 'https://selfcare.dialog.lk',
+  'Mobitel': 'https://mas.mobitel.lk',
+  'Airtel': 'https://my.airtel.lk',
 };
 
 function sanitizeHost(input: string): string {
@@ -671,12 +678,12 @@ export default function PingingScreen() {
             onPress={() => setConfigModalVisible(true)}
           >
             <Text style={[gs.labelCaps, styles.destinationLabel]}>Time</Text>
-<View style={gs.chip}>
-                <MaterialIcons name="timer" size={14} color={Colors.primary} />
-                <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
-                  {pingInterval === RELAX_OPTION ? 'Battery Saver' : pingInterval}
-                </Text>
-              </View>
+            <View style={gs.chip}>
+              <MaterialIcons name="timer" size={14} color={Colors.primary} />
+              <Text style={[gs.codeSm, { color: Colors.onSurface }]}>
+                {pingInterval === RELAX_OPTION ? 'Battery Saver' : pingInterval}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
 

@@ -124,6 +124,7 @@ const RADIUS = (GAUGE_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const MAX_GAUGE_DOWNLOAD = 150;
 const MAX_GAUGE_UPLOAD = 150;
+const MAX_ARC_SWEEP = CIRCUMFERENCE * 0.75;
 
 interface HistoryItem {
   id: string;
@@ -133,6 +134,98 @@ interface HistoryItem {
   upload: number;
   serverName: string;
 }
+
+// Memoized speedometer / GO button so per-chunk `setCurrentSpeed` updates
+// (every ~160ms in the JS fallback loop) only re-render this small subtree,
+// not the whole screen with tiles, server card, and buttons.
+interface SpeedGaugeProps {
+  phase: TestPhase;
+  currentSpeed: number;
+  onGo: () => void;
+}
+
+const SpeedGauge = React.memo(function SpeedGauge({ phase, currentSpeed, onGo }: SpeedGaugeProps) {
+  const gaugeMax = phase === 'upload' ? MAX_GAUGE_UPLOAD : MAX_GAUGE_DOWNLOAD;
+  const fillRatio = Math.max(0, Math.min(currentSpeed / gaugeMax, 1));
+  // Directly computed offset: re-renders on every currentSpeed change, so the
+  // needle is guaranteed to track the live measured download/upload speed.
+  const computedDashOffset = MAX_ARC_SWEEP * (1 - fillRatio);
+
+  return (
+    <>
+      {/* Background Concentric Rings */}
+      <View style={styles.ringOuter} />
+      <View style={styles.ringMiddle} />
+
+      {/* SVG Radial Gauge */}
+      <View style={styles.gaugeWrapper}>
+        <Svg width={GAUGE_SIZE} height={GAUGE_SIZE} style={styles.svgGauge}>
+          <Defs>
+            <LinearGradient id="cyanGradient" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0%" stopColor={Colors.secondaryContainer} stopOpacity="1" />
+              <Stop offset="100%" stopColor={Colors.primaryContainer} stopOpacity="1" />
+            </LinearGradient>
+          </Defs>
+
+          {/* Background Arc Track */}
+          <Circle
+            cx={GAUGE_SIZE / 2}
+            cy={GAUGE_SIZE / 2}
+            r={RADIUS}
+            stroke={Colors.surfaceContainerHigh}
+            strokeWidth={STROKE_WIDTH}
+            strokeDasharray={`${MAX_ARC_SWEEP} ${CIRCUMFERENCE}`}
+            strokeLinecap="round"
+            fill="none"
+            transform={`rotate(135 ${GAUGE_SIZE / 2} ${GAUGE_SIZE / 2})`}
+          />
+
+          {/* Active Arc — bound directly to currentSpeed so it reliably tracks
+              the live measured download/upload speed during each phase */}
+          <Circle
+            cx={GAUGE_SIZE / 2}
+            cy={GAUGE_SIZE / 2}
+            r={RADIUS}
+            stroke="url(#cyanGradient)"
+            strokeWidth={STROKE_WIDTH}
+            strokeDasharray={`${MAX_ARC_SWEEP} ${CIRCUMFERENCE}`}
+            strokeDashoffset={computedDashOffset}
+            strokeLinecap="round"
+            fill="none"
+            transform={`rotate(135 ${GAUGE_SIZE / 2} ${GAUGE_SIZE / 2})`}
+          />
+        </Svg>
+
+        {/* Dial Center Cutout */}
+        <View style={styles.dialCenterCutout}>
+          {phase === 'idle' ? (
+            /* GO Button */
+            <TouchableOpacity
+              style={styles.goButton}
+              onPress={onGo}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.goButtonText}>GO</Text>
+            </TouchableOpacity>
+          ) : (
+            /* Live Speed Display */
+            <View style={styles.liveSpeedContainer}>
+              <Text style={styles.liveSpeedValue}>
+                {currentSpeed > 0 ? currentSpeed.toFixed(1) : '0.0'}
+              </Text>
+              <Text style={[{ color: Colors.secondaryContainer }]}>Mbps</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Scale Ticks */}
+        <Text style={[gs.codeSm, styles.scaleLabelLeft]}>0</Text>
+        <Text style={[gs.codeSm, styles.scaleLabelTop]}>75</Text>
+        <Text style={[gs.codeSm, styles.scaleLabelRight]}>150+</Text>
+      </View>
+    </>
+  );
+});
 
 export default function SpeedTestScreen() {
   // ── Screen States ────────────────────────────────────────────────
@@ -411,9 +504,25 @@ export default function SpeedTestScreen() {
             cache: 'no-store',
             signal: chunkController.signal,
           });
-          const buffer = await res.arrayBuffer();
+
+          // Stream the body instead of buffering the whole chunk on the JS
+          // thread. Yielding after each read keeps the UI responsive during the
+          // 25MB download (falls back to arrayBuffer when no reader is exposed).
+          let chunkBytes = 0;
+          const reader = (res.body as any)?.getReader?.();
+          if (reader) {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunkBytes += value?.byteLength ?? 0;
+              await new Promise((r) => setTimeout(r, 0));
+            }
+            if (chunkBytes === 0) chunkBytes = 500000;
+          } else {
+            const buffer = await res.arrayBuffer();
+            chunkBytes = buffer.byteLength || 500000;
+          }
           clearTimeout(chunkTimer);
-          const chunkBytes = buffer.byteLength || 500000;
           const chunkSeconds = Math.max(0.04, (performance.now() - chunkStart) / 1000);
           const mbps = (chunkBytes * 8) / chunkSeconds / 1_000_000;
           const clampedMbps = parseFloat(Math.min(Math.max(mbps, 2), 150).toFixed(1));
@@ -655,13 +764,6 @@ export default function SpeedTestScreen() {
   // ── Render Helpers ────────────────────────────────────────────────
   const isTesting = testPhase !== 'idle' && testPhase !== 'completed';
 
-  const maxArcSweep = CIRCUMFERENCE * 0.75;
-  const gaugeMax = testPhase === 'upload' ? MAX_GAUGE_UPLOAD : MAX_GAUGE_DOWNLOAD;
-  const fillRatio = Math.max(0, Math.min(currentSpeed / gaugeMax, 1));
-  // Directly computed offset: re-renders on every currentSpeed change, so the
-  // needle is guaranteed to track the live measured download/upload speed.
-  const computedDashOffset = maxArcSweep * (1 - fillRatio);
-
   return (
     <ScrollView
       style={gs.screenContainer}
@@ -726,76 +828,7 @@ export default function SpeedTestScreen() {
 
       {/* ── Speedometer Dial Section ──────────────────────────────── */}
       <View style={styles.speedometerSection}>
-        {/* Background Concentric Rings */}
-        <View style={styles.ringOuter} />
-        <View style={styles.ringMiddle} />
-
-        {/* SVG Radial Gauge */}
-        <View style={styles.gaugeWrapper}>
-          <Svg width={GAUGE_SIZE} height={GAUGE_SIZE} style={styles.svgGauge}>
-            <Defs>
-              <LinearGradient id="cyanGradient" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor={Colors.secondaryContainer} stopOpacity="1" />
-                <Stop offset="100%" stopColor={Colors.primaryContainer} stopOpacity="1" />
-              </LinearGradient>
-            </Defs>
-
-            {/* Background Arc Track */}
-            <Circle
-              cx={GAUGE_SIZE / 2}
-              cy={GAUGE_SIZE / 2}
-              r={RADIUS}
-              stroke={Colors.surfaceContainerHigh}
-              strokeWidth={STROKE_WIDTH}
-              strokeDasharray={`${maxArcSweep} ${CIRCUMFERENCE}`}
-              strokeLinecap="round"
-              fill="none"
-              transform={`rotate(135 ${GAUGE_SIZE / 2} ${GAUGE_SIZE / 2})`}
-            />
-
-            {/* Active Arc — bound directly to currentSpeed so it reliably tracks
-                the live measured download/upload speed during each phase */}
-            <Circle
-              cx={GAUGE_SIZE / 2}
-              cy={GAUGE_SIZE / 2}
-              r={RADIUS}
-              stroke="url(#cyanGradient)"
-              strokeWidth={STROKE_WIDTH}
-              strokeDasharray={`${maxArcSweep} ${CIRCUMFERENCE}`}
-              strokeDashoffset={computedDashOffset}
-              strokeLinecap="round"
-              fill="none"
-              transform={`rotate(135 ${GAUGE_SIZE / 2} ${GAUGE_SIZE / 2})`}
-            />
-          </Svg>
-
-          {/* Dial Center Cutout */}
-          <View style={styles.dialCenterCutout}>
-            {testPhase === 'idle' ? (
-              /* GO Button */
-              <TouchableOpacity
-                style={styles.goButton}
-                onPress={startSpeedTest}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.goButtonText}>GO</Text>
-              </TouchableOpacity>
-            ) : (
-              /* Live Speed Display */
-              <View style={styles.liveSpeedContainer}>
-                <Text style={styles.liveSpeedValue}>
-                  {currentSpeed > 0 ? currentSpeed.toFixed(1) : '0.0'}
-                </Text>
-                <Text style={[{ color: Colors.secondaryContainer }]}>Mbps</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Scale Ticks */}
-          <Text style={[gs.codeSm, styles.scaleLabelLeft]}>0</Text>
-          <Text style={[gs.codeSm, styles.scaleLabelTop]}>75</Text>
-          <Text style={[gs.codeSm, styles.scaleLabelRight]}>150+</Text>
-        </View>
+        <SpeedGauge phase={testPhase} currentSpeed={currentSpeed} onGo={startSpeedTest} />
 
         {/* Prompt Text */}
         {testPhase === 'idle' && (

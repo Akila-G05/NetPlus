@@ -1,9 +1,10 @@
 /**
  * DataUsageTracker — JS-level network traffic meter.
  *
- * Patches the global `fetch` to count request body bytes (sent)
- * and response content-length / body bytes (received) for every
- * network call made by NetPulse. No Android permissions required.
+* Patches the global `fetch` to count request body bytes (sent)
+ * and response content-length bytes (received — responses without a
+ * content-length header are not buffered, so they count as 0 received)
+ * for every network call made by NetPulse. No Android permissions required.
  *
  * Usage:
  *   import { dataUsageTracker } from '@/services/DataUsageTracker';
@@ -94,13 +95,10 @@ class DataUsageTracker {
         if (cl && !isNaN(parseInt(cl, 10))) {
           tracker.record(sentBytes, parseInt(cl, 10));
         } else {
-          const cloned = response.clone();
-          cloned.arrayBuffer().then((buf) => {
-            const receivedBytes = buf.byteLength || 0;
-            tracker.record(sentBytes, receivedBytes);
-          }).catch(() => {
-            tracker.record(sentBytes, 0);
-          });
+          // No content-length: skip buffering the body on the JS thread.
+          // Reading an entire unchunked response (e.g. a large download) into
+          // memory on every request stalls the UI, so record sent bytes only.
+          tracker.record(sentBytes, 0);
         }
 
         return response;
@@ -119,7 +117,9 @@ class DataUsageTracker {
       this.lostRequests += 1;
     }
     this.savePingStats();
-    this.notifyListeners();
+    // Ping results fire on every probe — notify subscribers on the debounced
+    // cadence used for traffic events instead of forcing a re-render per ping.
+    this.notifyListenersDebounced();
   }
 
   startSession(type: SessionType) {

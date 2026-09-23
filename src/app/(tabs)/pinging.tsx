@@ -35,10 +35,17 @@ import {
 } from 'react-native';
 
 // ── Pulse animation hook ─────────────────────────────────
-function usePulse() {
+// Gate the pulse loop on `active` — when idle it must not keep an endless
+// 60fps animation running on the native driver; that churns the render thread
+// even when the screen is just sitting there.
+function usePulse(active: boolean) {
   const anim = React.useRef(new Animated.Value(0.95)).current;
   React.useEffect(() => {
-    Animated.loop(
+    if (!active) {
+      anim.setValue(0.95);
+      return;
+    }
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(anim, {
           toValue: 1.05,
@@ -51,8 +58,10 @@ function usePulse() {
           useNativeDriver: true,
         }),
       ]),
-    ).start();
-  }, [anim]);
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, anim]);
   return anim;
 }
 
@@ -239,9 +248,129 @@ function statsFromBackground(bg: BackgroundPingStats): PingStats {
   };
 }
 
-export default function PingingScreen() {
-  const pulseScale = usePulse();
+// ── Memoized screen sections ──────────────────────────────
+// Each is memoized so a per-ping state update re-renders only its own small
+// subtree instead of the whole ScrollView with all cards.
 
+interface PingValueCircleProps {
+  isPinging: boolean;
+  latency: number | null;
+  scale: Animated.Value;
+  onPress: () => void;
+}
+
+const PingValueCircle = React.memo(function PingValueCircle({
+  isPinging,
+  latency,
+  scale,
+  onPress,
+}: PingValueCircleProps) {
+  return (
+    <TouchableOpacity
+      style={styles.pingValueWrap}
+      activeOpacity={0.8}
+      onPress={onPress}
+    >
+      {/* Outer pulse ring */}
+      <Animated.View
+        style={[
+          styles.pulseRing,
+          styles.pulseRingOuter,
+          isPinging && styles.pulseRingOuterActive,
+          { transform: [{ scale }] },
+        ]}
+      />
+      {/* Inner pulse ring */}
+      <Animated.View
+        style={[
+          styles.pulseRing,
+          styles.pulseRingInner,
+          isPinging && styles.pulseRingInnerActive,
+          { transform: [{ scale }], opacity: 0.3 },
+        ]}
+      />
+
+      {/* Inside the circle */}
+      <View style={styles.pingValueCenter}>
+        {isPinging ? (
+          <>
+            <Text style={styles.pingNumber}>
+              {latency !== null ? Math.round(latency) : '--'}
+              <Text style={styles.pingUnit}>ms</Text>
+            </Text>
+            <View style={styles.stopIndicator}>
+              <MaterialIcons name="stop" size={12} color="#FF3B30" />
+              <Text style={styles.stopText}>STOP</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.startTitle}>START</Text>
+            <Text style={styles.startSubtitle}>TAP TO PING</Text>
+          </>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+interface StatsGridViewProps {
+  stats: PingStats;
+}
+
+const StatsGridView = React.memo(function StatsGridView({ stats }: StatsGridViewProps) {
+  return (
+    <View style={styles.statsGrid}>
+      <View style={styles.statsRow}>
+        <StatBox label="MIN" value={String(stats.min)} unit="ms" style={styles.statCell} />
+        <StatBox label="AVG" value={String(stats.avg)} unit="ms" highlighted valueColor={Colors.primary} style={styles.statCell} />
+        <StatBox label="MAX" value={String(stats.max)} unit="ms" style={styles.statCell} />
+      </View>
+      <View style={styles.statsRow}>
+        <StatBox label="JITTER" value={String(stats.jitter)} unit="ms" style={styles.statCell} />
+        <StatBox
+          label="LOSS"
+          value={`${stats.lossPct}%`}
+          valueColor={stats.lossPct > 0 ? Colors.error : Colors.tertiary}
+          style={styles.statCell}
+        />
+        <StatBox
+          label="SUCCESS"
+          value={`${stats.successPct}%`}
+          valueColor={Colors.tertiary}
+          style={styles.statCell}
+        />
+      </View>
+    </View>
+  );
+});
+
+interface PacketRowViewProps {
+  stats: PingStats;
+}
+
+const PacketRowView = React.memo(function PacketRowView({ stats }: PacketRowViewProps) {
+  return (
+    <View style={styles.packetRow}>
+      <View style={styles.packetStat}>
+        <Text style={gs.labelCaps}>SENT </Text>
+        <Text style={gs.codeSm}>{stats.sent}</Text>
+      </View>
+      <View style={styles.packetDivider} />
+      <View style={styles.packetStat}>
+        <Text style={gs.labelCaps}>RECV </Text>
+        <Text style={gs.codeSm}>{stats.recv}</Text>
+      </View>
+      <View style={styles.packetDivider} />
+      <View style={styles.packetStat}>
+        <Text style={gs.labelCaps}>FAIL </Text>
+        <Text style={[gs.codeSm, { color: Colors.error }]}>{stats.fail}</Text>
+      </View>
+    </View>
+  );
+});
+
+export default function PingingScreen() {
   const { batteryModalDismissed, showBatteryModal } = useBatteryOnboarding();
 
   // Ping Configuration State
@@ -257,6 +386,8 @@ export default function PingingScreen() {
   const [currentLatency, setCurrentLatency] = useState<number | null>(null);
   const [stats, setStats] = useState<PingStats>(EMPTY_STATS);
 
+  const pulseScale = usePulse(isPinging);
+
   // Ping log console (feature toggled in Settings)
   const [logEnabled, setLogEnabled] = useState(LOG_ENABLED_DEFAULT);
   const [logEntries, setLogEntries] = useState<PingLogEntry[]>([]);
@@ -267,6 +398,11 @@ export default function PingingScreen() {
   const adLoaded = useRef(false);
   const adIsLoading = useRef(false);
   const lastAdShowTime = useRef(0);
+
+  // PingLog writes buffer every event and flush to state at most once/sec so
+  // high-frequency probes don't rebuild the whole 100-row log per ping.
+  const logBufferRef = useRef<PingLogEntry[]>([]);
+  const logFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Guarded ad loader — prevents double `load()` calls (which the SDK drops).
   const loadInterstitial = useCallback(() => {
@@ -399,6 +535,15 @@ export default function PingingScreen() {
     };
   }, [loadInterstitial]);
 
+  // Flushes buffered PingLog entries to state at most once per second.
+  const flushLogEntries = useCallback(() => {
+    if (logFlushTimerRef.current) return;
+    logFlushTimerRef.current = setTimeout(() => {
+      logFlushTimerRef.current = null;
+      setLogEntries(logBufferRef.current.slice());
+    }, 1000);
+  }, []);
+
   const stopPing = useCallback(() => {
     sessionRef.current.active = false;
     sessionRef.current.subscription?.remove();
@@ -441,6 +586,17 @@ export default function PingingScreen() {
 
   useEffect(() => () => stopPing(), [stopPing]);
 
+  // Clear any pending PingLog flush on unmount so a late timer never writes
+  // state after the screen is gone.
+  useEffect(() => {
+    return () => {
+      if (logFlushTimerRef.current) {
+        clearTimeout(logFlushTimerRef.current);
+        logFlushTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const syncBackgroundStats = useCallback(async () => {
     if (!sessionRef.current.active) return;
     const bgStats = await getBackgroundStats();
@@ -479,16 +635,15 @@ export default function PingingScreen() {
     dataUsageTracker.recordPingResult(event.latency > 0);
 
     if (logEnabledRef.current) {
-      setLogEntries((prev) =>
-        [
-          {
-            time: formatTimeStamp(new Date()),
-            host: event.host,
-            latency: event.latency > 0 ? event.latency : null,
-          },
-          ...prev,
-        ].slice(0, MAX_LOG_ENTRIES)
-      );
+      logBufferRef.current = [
+        {
+          time: formatTimeStamp(new Date()),
+          host: event.host,
+          latency: event.latency > 0 ? event.latency : null,
+        },
+        ...logBufferRef.current,
+      ].slice(0, MAX_LOG_ENTRIES);
+      flushLogEntries();
     }
 
     if (event.latency > 0) {
@@ -530,7 +685,7 @@ export default function PingingScreen() {
         fail: event.fail,
       }));
     }
-  }, []);
+  }, [flushLogEntries]);
 
   const startPing = useCallback(() => {
     const host = resolveHost(targetConnection, customHost);
@@ -552,6 +707,11 @@ export default function PingingScreen() {
     aggRef.current = { ...EMPTY_AGG };
     setCurrentLatency(null);
     setStats(EMPTY_STATS);
+    if (logFlushTimerRef.current) {
+      clearTimeout(logFlushTimerRef.current);
+      logFlushTimerRef.current = null;
+    }
+    logBufferRef.current = [];
     setLogEntries([]);
     setIsPinging(true);
     if (AD_LOAD_ON_START) {
@@ -579,6 +739,13 @@ export default function PingingScreen() {
       handlePingResult(event, session)
     );
   }, [targetConnection, customHost, pingInterval, pingMethod, loadInterstitial, handlePingResult]);
+
+  // Stable start/stop toggle so the memoized PingValueCircle onPress prop stays
+  // referentially stable and its memo subtree doesn't re-render on each ping.
+  const togglePing = useCallback(() => {
+    if (isPinging) stopPing();
+    else startPing();
+  }, [isPinging, stopPing, startPing]);
 
   // Adopt a native session that survived a JS process restart: restore the
   // persisted stats, resume live events, and show the session as running.
@@ -688,51 +855,12 @@ export default function PingingScreen() {
         </View>
 
         {/* Big Circular Ping & Start/Stop Button */}
-        <TouchableOpacity
-          style={styles.pingValueWrap}
-          activeOpacity={0.8}
-          onPress={() => (isPinging ? stopPing() : startPing())}
-        >
-          {/* Outer pulse ring */}
-          <Animated.View
-            style={[
-              styles.pulseRing,
-              styles.pulseRingOuter,
-              isPinging && styles.pulseRingOuterActive,
-              { transform: [{ scale: pulseScale }] },
-            ]}
-          />
-          {/* Inner pulse ring */}
-          <Animated.View
-            style={[
-              styles.pulseRing,
-              styles.pulseRingInner,
-              isPinging && styles.pulseRingInnerActive,
-              { transform: [{ scale: pulseScale }], opacity: 0.3 },
-            ]}
-          />
-
-          {/* Inside the circle */}
-          <View style={styles.pingValueCenter}>
-            {isPinging ? (
-              <>
-                <Text style={styles.pingNumber}>
-                  {currentLatency !== null ? Math.round(currentLatency) : '--'}
-                  <Text style={styles.pingUnit}>ms</Text>
-                </Text>
-                <View style={styles.stopIndicator}>
-                  <MaterialIcons name="stop" size={12} color="#FF3B30" />
-                  <Text style={styles.stopText}>STOP</Text>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.startTitle}>START</Text>
-                <Text style={styles.startSubtitle}>TAP TO PING</Text>
-              </>
-            )}
-          </View>
-        </TouchableOpacity>
+        <PingValueCircle
+          isPinging={isPinging}
+          latency={currentLatency}
+          scale={pulseScale}
+          onPress={togglePing}
+        />
       </View>
 
       {/* ── Settings shortcut ────────────────────────────── */}
@@ -769,46 +897,10 @@ export default function PingingScreen() {
       )}
 
       {/* ── Statistics Grid ──────────────────────────────── */}
-      <View style={styles.statsGrid}>
-        <View style={styles.statsRow}>
-          <StatBox label="MIN" value={String(stats.min)} unit="ms" style={styles.statCell} />
-          <StatBox label="AVG" value={String(stats.avg)} unit="ms" highlighted valueColor={Colors.primary} style={styles.statCell} />
-          <StatBox label="MAX" value={String(stats.max)} unit="ms" style={styles.statCell} />
-        </View>
-        <View style={styles.statsRow}>
-          <StatBox label="JITTER" value={String(stats.jitter)} unit="ms" style={styles.statCell} />
-          <StatBox
-            label="LOSS"
-            value={`${stats.lossPct}%`}
-            valueColor={stats.lossPct > 0 ? Colors.error : Colors.tertiary}
-            style={styles.statCell}
-          />
-          <StatBox
-            label="SUCCESS"
-            value={`${stats.successPct}%`}
-            valueColor={Colors.tertiary}
-            style={styles.statCell}
-          />
-        </View>
-      </View>
+      <StatsGridView stats={stats} />
 
       {/* ── Packet Stats ─────────────────────────────────── */}
-      <View style={styles.packetRow}>
-        <View style={styles.packetStat}>
-          <Text style={gs.labelCaps}>SENT </Text>
-          <Text style={gs.codeSm}>{stats.sent}</Text>
-        </View>
-        <View style={styles.packetDivider} />
-        <View style={styles.packetStat}>
-          <Text style={gs.labelCaps}>RECV </Text>
-          <Text style={gs.codeSm}>{stats.recv}</Text>
-        </View>
-        <View style={styles.packetDivider} />
-        <View style={styles.packetStat}>
-          <Text style={gs.labelCaps}>FAIL </Text>
-          <Text style={[gs.codeSm, { color: Colors.error }]}>{stats.fail}</Text>
-        </View>
-      </View>
+      <PacketRowView stats={stats} />
 
       {/* ── Ping Log Console ────────────────────────────── */}
       {logEnabled && <PingLog entries={logEntries} />}

@@ -1,50 +1,132 @@
-# Welcome to your Expo app 👋
+# NetPlus (NetPulse)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An Android network utility app built with **Expo** and **React Native**. It measures
+latency, throughput, and connection quality, and keeps monitoring in the background
+through a custom native module.
 
-## Get started
+The app ships as `NetPlus` (package `com.anonymous.NetPlus`); the repository is
+`NetPulse`.
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+| Area | What it does |
+|---|---|
+| **Speed test** | Ping, download, and upload phases with live progress, run as a native foreground service so it survives leaving the app |
+| **Continuous ping** | Repeated ICMP/HTTP pings against a chosen host with min/max/avg stats and a persistent notification |
+| **Network monitor** | Live connection state and generation (2G/3G/4G/5G/no signal) via `@react-native-community/netinfo` |
+| **Data usage** | Per-interface data consumption tracking (`DataUsageTracker`) |
+| **Tools** | Network utilities, IP tracking, and navigation to settings and upcoming diagnostic suites |
+| **Background operation** | Boot receiver restarts the ping service, and a battery-optimization exemption flow keeps the service alive |
+| **Design** | Dark-first Material You palette in `UI/DESIGN.md`, Inter + JetBrains Mono typography, haptics, reanimated transitions |
 
-2. Start the app
+## Tech stack
 
-   ```bash
-   npx expo start
-   ```
+- **Expo SDK 54** / React Native 0.81.5, new architecture enabled, React 19.1
+- **Expo Router** for file-based routing (`src/app/`)
+- **TypeScript 5.9**
+- **expo-notifications** for the foreground-service notifications
+- **react-native-google-mobile-ads** for ads
+- **Custom local native module** `netplus-ping` (`modules/NetPlusPing`, Kotlin)
+  providing `ping`, continuous monitoring, background speed tests, and battery
+  optimization helpers
+- **react-native-svg** + **reanimated** for the gauge visualizations
 
-In the output, you'll find options to open the app in a
+## The native module
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+`modules/NetPlusPing` is a local Expo module written in Kotlin. It is the reason
+several features only work in a real build rather than in Expo Go:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+| Native class | Role |
+|---|---|
+| `NetPlusPingModule.kt` | Module API — ping, continuous ping, speed test, battery-optimization checks |
+| `NetPlusPingForegroundService.kt` | Keeps continuous pinging alive in the background with a notification |
+| `NetPlusSpeedTestForegroundService.kt` | Same, for long-running speed tests |
+| `NetPlusPingBootReceiver.kt` | Restarts monitoring after device reboot |
 
-## Get a fresh project
-
-When you're ready, run:
+Because it is native code, the app must be compiled:
 
 ```bash
-npm run reset-project
+npx expo run:android
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+In Expo Go, `isNetPlusPingAvailable()` returns false and the affected screens fall
+back to JS-only behaviour.
 
-## Learn more
+## Project structure
 
-To learn more about developing your project with Expo, look at the following resources:
+```
+app.json                     # Expo config (name, package, plugins, ad unit ids)
+eas.json                     # EAS build profiles
+src/
+  app/                       # Expo Router routes
+    (tabs)/                  # index, network, pinging, speedtest, tools, injector, settings
+    settings.tsx
+  components/                # CircularProgress, DataCard, StatBox, ConnectionStatusBar, ...
+  constants/                 # theme tokens, network generation labels
+  services/                  # DataUsageTracker, NotificationService, MobileAdsService
+  styles/globalStyles.ts     # shared style helpers
+  types/                     # TypeScript types
+modules/NetPlusPing/         # Local Kotlin Expo module (native ICMP ping)
+UI/                          # HTML design mockups and DESIGN.md (Material You tokens)
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Getting started
 
-## Join the community
+### Prerequisites
 
-Join our community of developers creating universal apps.
+- Node.js 18+
+- Android device or emulator (the native module is Android-only)
+- Android Studio with a working SDK, for native builds
+- Expo Go, only if you just want to explore the JS screens
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### Install and run
+
+```bash
+git clone https://github.com/Akila-G05/NetPulse.git
+cd NetPulse
+npm install
+```
+
+Then pick a target:
+
+```bash
+npx expo start              # dev server; scan the QR code with Expo Go
+npx expo run:android         # full native build, required for ping + background services
+npx expo start --web        # static web build
+```
+
+Other scripts:
+
+```bash
+npm run lint                # eslint (eslint-config-expo)
+npm run android             # alias for expo run:android
+```
+
+The `injector` tab is currently a `ComingSoon` placeholder for future packet
+injection and header-manipulation tooling.
+
+> `npm run reset-project` is defined in `package.json` but the referenced
+> `scripts/reset-project.js` is not in the repo, so that script will fail.
+
+## Battery optimization
+
+Continuous monitoring and background speed tests depend on a foreground service
+that Android may still throttle. The Settings screen can check whether the app is
+exempt and deep-link to the system battery-optimization settings:
+
+```ts
+import { isIgnoringBatteryOptimizations } from 'netplus-ping';
+```
+
+## Notes
+
+- `package.json` marks the package `private: true`, so `npx expo start` is the
+  intended entry point; EAS profiles live in `eas.json`.
+- The Android AdMob app id in `app.json` is a real unit; the iOS id is Google's
+  public test id.
+- `UI/` contains the HTML prototypes and the Material You color/typography tokens
+  the React Native theme in `src/constants/theme.ts` is built from.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
